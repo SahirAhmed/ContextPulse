@@ -1,0 +1,80 @@
+CONTEXTPULSE — PROJECT CONTEXT AND DEVELOPMENT BRIEF
+Version: 1.0
+Last updated: 1 November 2026
+
+PURPOSE OF THIS FILE
+This document provides persistent project context for Gemini whenever I ask it to work on ContextPulse. Read it before making recommendations or changing code. Treat it as the current product direction and development constraints. If a new request conflicts with this document, point out the conflict rather than silently changing the architecture.
+
+======================================================================
+1. PRODUCT VISION
+======================================================================
+
+I am building ContextPulse, a native Android application that automatically adapts my phone's behaviour based on the physical environment or context I am in.
+
+Examples:
+- Bedroom: enable an appropriate Do Not Disturb mode, lower brightness and reduce distracting app use.
+- Office/study: allow work-related notifications, restrict distracting apps and use suitable brightness.
+- Mosque: silence or minimise notifications and reduce distractions.
+- Living room: use a more relaxed set of settings.
+- Car: potentially activate a driving profile when a suitable beacon is detected.
+
+The user should be able to create their own rooms/places and configure an independent profile for each one. The app should eventually support automatic context detection using BLE beacons, as well as manual activation.
+
+The core product model is:
+
+TRIGGER -> CONTEXT -> PROFILE -> ACTIONS
+
+- TRIGGER: A BLE beacon or a future trigger type provides a signal/event.
+- CONTEXT: The app determines which room or context is currently active.
+- PROFILE: The selected room has its own independent configuration.
+- ACTIONS: An action engine applies the configured Android settings or restrictions.
+
+IMPORTANT: A trigger must never directly change Android settings. Triggers only provide observations/events to the context layer. The context engine decides whether the active context should change. The action engine then applies the relevant profile.
+
+======================================================================
+2. PRODUCT AND ARCHITECTURE PRINCIPLES
+======================================================================
+
+These principles are important. Preserve them unless I explicitly approve a change.
+
+A. Room and profile independence
+- Each room has its own profile.
+- Editing one room's profile must not change another room's profile.
+- A room can have zero, one or multiple associated beacons.
+- Do not assume one beacon per room.
+- A beacon should be independently registerable, editable, removable and associable with a room.
+- Use stable identifiers for rooms and beacon registrations.
+
+B. Single active context
+- Only one room/context can be active at a time.
+- Activating another room must replace/deactivate the previous active room.
+- Manual activation changes the app's internal context state; it must not bypass the context engine or directly call Android system APIs.
+- Manual activation is useful for testing and should remain available even after automatic detection is implemented.
+
+C. Baseline and reversibility
+- Before the first profile is applied, capture the relevant original device settings (the baseline).
+- Switching from one room to another must not overwrite the original baseline.
+- Deactivating ContextPulse should restore the baseline where safe and technically possible.
+- The app must avoid leaving the phone in an unexpected state if it crashes, is force-stopped, the phone reboots, permissions are revoked or a transition is interrupted.
+- Be careful not to overwrite a setting the user has manually changed after ContextPulse applied its own value. Before restoring a baseline in the real hardware implementation, consider whether ContextPulse still owns the setting or whether the user has changed it. If safe restoration cannot be established, make recovery explicit rather than blindly overwriting the user's current choice.
+- Persist state needed for recovery, but do not claim that persistence alone guarantees successful restoration after every Android/HyperOS lifecycle event.
+
+D. Android platform reality
+- Do not promise functionality that Android does not permit.
+- Clearly distinguish what is possible with normal permissions, special settings permissions, notification policy access, Usage Access, Accessibility, Device Owner/device management or other privileged access.
+- Explain any permission, user action, policy, Play Store or device-manufacturer restriction.
+- Do not use Accessibility or Device Owner approaches casually. Explain why they are needed and the consequences before proposing them.
+- Xiaomi/POCO HyperOS may impose additional background execution and battery restrictions. Treat behaviour as something to test on the actual phone, not something guaranteed by a generic Android assumption.
+- Do not claim that an app can silently force settings or block any app in all circumstances unless the Android API and permission model genuinely allow it.
+
+E. Maintainable implementation
+- Native Android application using Kotlin and Jetpack Compose.
+- Keep UI separate from business logic and Android system integrations.
+- Prefer a clean, understandable package structure and a small number of sensible layers. Do not create excessive Gradle modules, abstractions, dependencies or frameworks without a clear need.
+- Use repositories for persistence, models for domain data, dedicated trigger/scanning components, a context engine, action controllers and appropriate service components.
+- Keep code understandable and explain important decisions in straightforward language.
+- Avoid rewriting working components just for stylistic reasons.
+- Preserve existing functionality and data migrations when changing models or persistence.
+
+
+END OF CONTEXTPULSE PROJECT CONTEXT

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.ContextPulsePhase0" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0C0D0E</item>
+        <item name="android:colorBackground">#0C0D0E</item>
+        <item name="android:statusBarColor">#0C0D0E</item>
+        <item name="android:navigationBarColor">#0C0D0E</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">#0C0D0E</item>
+    </style>
+    <style name="Theme.MyApplication" parent="Theme.ContextPulsePhase0" />
+</resources>

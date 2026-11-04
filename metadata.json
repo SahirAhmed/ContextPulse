@@ -1,0 +1,6 @@
+{
+  "name": "ContextPulse",
+  "description": "ContextPulse BLE beacon proximity scanning, contextual automation triggers, and app interception feasibility engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

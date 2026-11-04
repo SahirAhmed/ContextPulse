@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ContextPulse</string>
+    <string name="ble_service_notification_title">ContextPulse Feasibility Engine Active</string>
+    <string name="ble_service_notification_desc">Scanning for BLE beacons and evaluating context triggers</string>
+</resources>
