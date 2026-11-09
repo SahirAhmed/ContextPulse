@@ -2,6 +2,7 @@ package com.contextpulse.phase0.ble
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.contextpulse.phase0.model.BeaconType
 import com.contextpulse.phase0.model.RoomBeaconDefinition
 import org.json.JSONArray
 import org.json.JSONObject
@@ -33,14 +34,24 @@ object BeaconRegistry {
             val jsonArray = JSONArray(jsonString)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val beaconTypeStr = obj.optString("beaconType", BeaconType.IBEACON.name)
+                val beaconType = try {
+                    BeaconType.valueOf(beaconTypeStr)
+                } catch (_: Exception) {
+                    BeaconType.IBEACON
+                }
+
                 list.add(
                     RoomBeaconDefinition(
                         roomId = obj.getString("roomId"),
                         roomName = obj.getString("roomName"),
                         macAddress = obj.getString("macAddress"),
-                        uuid = if (obj.has("uuid")) obj.getString("uuid") else null,
+                        uuid = if (obj.has("uuid") && !obj.isNull("uuid")) obj.getString("uuid") else null,
                         major = if (obj.has("major") && !obj.isNull("major")) obj.getInt("major") else null,
-                        minor = if (obj.has("minor") && !obj.isNull("minor")) obj.getInt("minor") else null
+                        minor = if (obj.has("minor") && !obj.isNull("minor")) obj.getInt("minor") else null,
+                        namespace = if (obj.has("namespace") && !obj.isNull("namespace")) obj.getString("namespace") else null,
+                        instance = if (obj.has("instance") && !obj.isNull("instance")) obj.getString("instance") else null,
+                        beaconType = beaconType
                     )
                 )
             }
@@ -60,31 +71,59 @@ object BeaconRegistry {
                 b.uuid?.let { put("uuid", it) }
                 b.major?.let { put("major", it) }
                 b.minor?.let { put("minor", it) }
+                b.namespace?.let { put("namespace", it) }
+                b.instance?.let { put("instance", it) }
+                put("beaconType", b.beaconType.name)
             }
             jsonArray.put(obj)
         }
         getPrefs(context).edit().putString(KEY_REGISTERED_BEACONS, jsonArray.toString()).apply()
     }
 
+    /**
+     * Registers a beacon for a room context.
+     * Supports MULTIPLE beacons per room (e.g. multiple beacons in a large living room or office).
+     * Only replaces if the exact same physical beacon (MAC or UUID/Major/Minor or Namespace/Instance) already exists.
+     */
     fun registerBeacon(
         context: Context,
+        roomId: String? = null,
         roomName: String,
         macAddress: String,
         uuid: String? = null,
         major: Int? = null,
-        minor: Int? = null
+        minor: Int? = null,
+        namespace: String? = null,
+        instance: String? = null,
+        beaconType: BeaconType = BeaconType.IBEACON
     ) {
         val current = getRegisteredBeacons(context).toMutableList()
-        // Remove existing definition with same MAC or roomName if any
-        current.removeAll { it.macAddress.equals(macAddress, ignoreCase = true) || it.roomName.equals(roomName, ignoreCase = true) }
+
+        // Only remove an existing beacon if it represents the identical physical beacon:
+        // matching MAC address or matching full beacon identifier
+        current.removeAll { existing ->
+            when {
+                macAddress.isNotBlank() && existing.macAddress.equals(macAddress, ignoreCase = true) -> true
+                uuid != null && existing.uuid != null && existing.uuid.equals(uuid, ignoreCase = true) &&
+                        existing.major == major && existing.minor == minor -> true
+                namespace != null && existing.namespace != null && existing.namespace.equals(namespace, ignoreCase = true) &&
+                        existing.instance != null && existing.instance.equals(instance, ignoreCase = true) -> true
+                else -> false
+            }
+        }
+
+        val targetRoomId = roomId ?: "room_${roomName.lowercase().replace(" ", "_")}"
         current.add(
             RoomBeaconDefinition(
-                roomId = "room_${System.currentTimeMillis() % 10000}",
+                roomId = targetRoomId,
                 roomName = roomName,
                 macAddress = macAddress,
                 uuid = uuid,
                 major = major,
-                minor = minor
+                minor = minor,
+                namespace = namespace,
+                instance = instance,
+                beaconType = beaconType
             )
         )
         saveRegisteredBeacons(context, current)
@@ -98,22 +137,29 @@ object BeaconRegistry {
 
     /**
      * Checks if a discovered device matches any registered room beacon.
-     * Matches primarily on MAC address, or secondary on UUID + Major + Minor if MAC randomized.
+     * Matches on:
+     * 1. MAC address (case-insensitive)
+     * 2. iBeacon UUID + Major + Minor (if present)
+     * 3. Eddystone-UID Namespace + Instance or combined UUID string
+     * 4. Generic beacon matching on device address or name
      */
     fun findMatchingRoom(
         context: Context,
         macAddress: String,
         uuid: String? = null,
         major: Int? = null,
-        minor: Int? = null
+        minor: Int? = null,
+        namespace: String? = null,
+        instance: String? = null
     ): RoomBeaconDefinition? {
         val registered = getRegisteredBeacons(context)
         return registered.find { room ->
-            // Match MAC address (case-insensitive)
+            // 1. Match MAC address (case-insensitive)
             if (room.macAddress.isNotEmpty() && room.macAddress.equals(macAddress, ignoreCase = true)) {
                 return@find true
             }
-            // Or match iBeacon UUID + Major + Minor
+
+            // 2. Match iBeacon / AltBeacon UUID + Major + Minor
             if (uuid != null && room.uuid != null && room.uuid.equals(uuid, ignoreCase = true)) {
                 if (room.major == null || room.major == major) {
                     if (room.minor == null || room.minor == minor) {
@@ -121,6 +167,23 @@ object BeaconRegistry {
                     }
                 }
             }
+
+            // 3. Match Eddystone-UID
+            // Check direct namespace and instance if available
+            if (namespace != null && room.namespace != null && room.namespace.equals(namespace, ignoreCase = true)) {
+                if (room.instance == null || room.instance.equals(instance, ignoreCase = true)) {
+                    return@find true
+                }
+            }
+
+            // Check if uuid was parsed as "namespace-instance" from BeaconParser
+            if (uuid != null && room.namespace != null) {
+                val expectedCombined = "${room.namespace}-${room.instance ?: ""}"
+                if (uuid.startsWith(room.namespace, ignoreCase = true) || uuid.equals(expectedCombined, ignoreCase = true)) {
+                    return@find true
+                }
+            }
+
             false
         }
     }
@@ -128,28 +191,31 @@ object BeaconRegistry {
     private fun getDefaultRooms(): List<RoomBeaconDefinition> {
         return listOf(
             RoomBeaconDefinition(
-                roomId = "bedroom",
+                roomId = "room_bedroom",
                 roomName = "Bedroom",
                 macAddress = "DD:34:02:88:1A:E1",
                 uuid = "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
                 major = 101,
-                minor = 1
+                minor = 1,
+                beaconType = BeaconType.IBEACON
             ),
             RoomBeaconDefinition(
-                roomId = "desk",
+                roomId = "room_office",
                 roomName = "Study / Desk",
                 macAddress = "E1:89:12:33:F2:B4",
                 uuid = "7B94B88F-D2A4-4822-927A-1910BA8021B1",
                 major = 102,
-                minor = 2
+                minor = 2,
+                beaconType = BeaconType.IBEACON
             ),
             RoomBeaconDefinition(
-                roomId = "living",
+                roomId = "room_living_room",
                 roomName = "Living Room",
                 macAddress = "C4:55:78:90:11:02",
                 uuid = "5A243454-CF6D-4A0F-ADF2-F4911BA9FFA6",
                 major = 103,
-                minor = 3
+                minor = 3,
+                beaconType = BeaconType.IBEACON
             )
         )
     }

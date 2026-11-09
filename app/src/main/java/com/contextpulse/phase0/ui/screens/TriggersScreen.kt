@@ -38,6 +38,7 @@ import com.contextpulse.phase0.security.AppLockManager
 import com.contextpulse.phase0.ui.components.AppLockDialog
 import com.contextpulse.phase0.ui.components.contextPulseLazyScrollbar
 import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
+import com.contextpulse.phase0.util.QrSheetPrinter
 
 @Composable
 fun TriggersScreen(
@@ -45,7 +46,7 @@ fun TriggersScreen(
     contexts: List<ContextItem>,
     beaconRepo: BeaconRepository,
     lockManager: AppLockManager,
-    onAddTriggerWithName: (name: String) -> Unit,
+    onAddTriggerWithName: (name: String, type: TriggerType) -> Unit,
     onOpenConfigureTrigger: (triggerId: String) -> Unit,
     onDeleteTrigger: (triggerId: String) -> Unit,
     modifier: Modifier = Modifier
@@ -60,7 +61,24 @@ fun TriggersScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var newTriggerName by remember { mutableStateOf("") }
+    var newTriggerType by remember { mutableStateOf(TriggerType.BLE_BEACON) }
     var triggerPendingDelete by remember { mutableStateOf<TriggerItem?>(null) }
+
+    val permRepo = remember { com.contextpulse.phase0.repository.PermissionsRepository.getInstance(context) }
+    val permState by permRepo.state.collectAsState()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permRepo.refreshPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val hasBtPermission = permState.bluetoothEnabled
 
     fun runWithLockProtection(action: () -> Unit) {
         if (lockManager.isLockedForAction()) {
@@ -141,6 +159,57 @@ fun TriggersScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
 
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "TRIGGER TYPE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.accent,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            Triple(TriggerType.BLE_BEACON, "Beacon", Icons.Outlined.Bluetooth),
+                            Triple(TriggerType.NFC_TAG, "NFC", Icons.Default.Nfc),
+                            Triple(TriggerType.QR_CODE, "QR Code", Icons.Default.QrCode2)
+                        ).forEach { (tType, tLabel, tIcon) ->
+                            val isSel = newTriggerType == tType
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSel) theme.primary.copy(alpha = 0.16f) else theme.surfaceVariant)
+                                    .border(1.dp, if (isSel) theme.primary else theme.border, RoundedCornerShape(12.dp))
+                                    .clickable { newTriggerType = tType }
+                                    .padding(vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(
+                                        imageVector = tIcon,
+                                        contentDescription = null,
+                                        tint = if (isSel) theme.primary else theme.textSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = tLabel,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSel) theme.primary else theme.textPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(20.dp))
 
                     Row(
@@ -148,7 +217,10 @@ fun TriggersScreen(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = { showAddDialog = false }) {
+                        TextButton(onClick = {
+                            showAddDialog = false
+                            newTriggerType = TriggerType.BLE_BEACON
+                        }) {
                             Text("Cancel", color = theme.textSecondary)
                         }
                         Spacer(modifier = Modifier.width(8.dp))
@@ -156,9 +228,11 @@ fun TriggersScreen(
                             onClick = {
                                 if (newTriggerName.isNotBlank() && !isDuplicate) {
                                     val name = newTriggerName.trim()
+                                    val chosenType = newTriggerType
                                     showAddDialog = false
                                     newTriggerName = ""
-                                    onAddTriggerWithName(name)
+                                    newTriggerType = TriggerType.BLE_BEACON
+                                    onAddTriggerWithName(name, chosenType)
                                 }
                             },
                             enabled = newTriggerName.isNotBlank() && !isDuplicate,
@@ -222,6 +296,8 @@ fun TriggersScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            val qrTriggers = remember(triggers) { triggers.filter { it.type == TriggerType.QR_CODE } }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -271,6 +347,63 @@ fun TriggersScreen(
                 color = theme.textSecondary,
                 fontSize = 13.5.sp
             )
+        }
+
+        if (!hasBtPermission) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.WarningAmber,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Bluetooth Detection Disabled",
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD97706),
+                                fontSize = 14.sp
+                            )
+                        }
+                        Text(
+                            text = "Beacon scanning is disabled until Bluetooth & Location permissions are granted. Triggers will not detect your physical presence.",
+                            fontSize = 12.sp,
+                            color = theme.textSecondary,
+                            lineHeight = 16.sp
+                        )
+                        Button(
+                            onClick = {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.fromParts("package", context.packageName, null)
+                                }
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    // Ignored
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text("Grant Permissions in Settings", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
         }
 
         if (triggers.isEmpty()) {
@@ -382,13 +515,15 @@ fun TriggersScreen(
                                             color = theme.textPrimary
                                         )
 
-                                        // Status Indicator Light
-                                        Box(
-                                            modifier = Modifier
-                                                .size(9.dp)
-                                                .clip(CircleShape)
-                                                .background(statusColor)
-                                        )
+                                        // Status Indicator Light (BLE Beacon only)
+                                        if (trigger.type == TriggerType.BLE_BEACON) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(9.dp)
+                                                    .clip(CircleShape)
+                                                    .background(statusColor)
+                                            )
+                                        }
                                     }
 
                                     Text(
@@ -523,49 +658,50 @@ fun TriggersScreen(
                             }
                         }
 
-                        // Broadcast & Hardware info banner
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(theme.background)
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        // Broadcast & Hardware info banner (BLE Beacon only)
+                        if (trigger.type == TriggerType.BLE_BEACON) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(theme.background)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(statusColor)
-                                )
-                                Text(
-                                    text = status.getDisplayName(),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = statusColor
-                                )
-                            }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(statusColor)
+                                    )
+                                    Text(
+                                        text = status.getDisplayName(),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = statusColor
+                                    )
+                                }
 
-                            if (trigger.type == TriggerType.BLE_BEACON) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
+                                    val battery = trigger.batteryPercent ?: 100
                                     Icon(
                                         imageVector = Icons.Outlined.BatteryFull,
                                         contentDescription = "Battery",
-                                        tint = if (trigger.batteryPercent <= 20) Color(0xFFF59E0B) else theme.textSecondary,
+                                        tint = if (battery <= 20) Color(0xFFF59E0B) else theme.textSecondary,
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Text(
-                                        text = "${trigger.batteryPercent}%",
+                                        text = "${battery}%",
                                         fontSize = 12.sp,
-                                        color = if (trigger.batteryPercent <= 20) Color(0xFFF59E0B) else theme.textSecondary,
+                                        color = if (battery <= 20) Color(0xFFF59E0B) else theme.textSecondary,
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
@@ -634,6 +770,39 @@ fun TriggersScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        if (triggers.any { it.type == TriggerType.QR_CODE }) {
+            val qrTriggers = triggers.filter { it.type == TriggerType.QR_CODE }
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        QrSheetPrinter.printQrCodesSheet(context, qrTriggers, contexts)
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = theme.primary
+                    ),
+                    border = BorderStroke(1.5.dp, theme.primary),
+                    contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Print,
+                        contentDescription = "Print QR Codes",
+                        modifier = Modifier.size(19.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (qrTriggers.size == 1) "Print QR Code (${qrTriggers.first().name})" else "Print QR Codes (${qrTriggers.size})",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
                 }
             }
         }

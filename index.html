@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContextPulse — Room Trigger Bridge</title>
+  <style>
+    :root {
+      --bg: #0A0B0F;
+      --surface: #13151C;
+      --surface-variant: #1B1E28;
+      --primary: #FACC15;
+      --tertiary: #38BDF8;
+      --text-primary: #F9FAFB;
+      --text-secondary: #9CA3AF;
+      --border: #262936;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .card {
+      background-color: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      max-width: 420px;
+      width: 100%;
+      padding: 32px 24px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(56, 189, 248, 0.14);
+      color: var(--tertiary);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      padding: 5px 12px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .trigger-box {
+      background-color: var(--surface-variant);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 24px;
+      text-align: left;
+    }
+    .trigger-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 4px;
+    }
+    .trigger-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary);
+      word-break: break-all;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      background-color: var(--primary);
+      color: #090A0F;
+      font-weight: 800;
+      font-size: 15px;
+      text-decoration: none;
+      padding: 15px 20px;
+      border-radius: 14px;
+      margin-bottom: 12px;
+      transition: opacity 0.15s ease;
+    }
+    .btn:active { opacity: 0.85; }
+    .btn-secondary {
+      display: block;
+      width: 100%;
+      background-color: var(--surface-variant);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 13px;
+      text-decoration: none;
+      padding: 12px 18px;
+      border-radius: 12px;
+    }
+    .status {
+      margin-top: 18px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">ContextPulse Connection Hub</div>
+    <h1 id="title">Activating Context...</h1>
+    <p class="subtitle" id="desc">Redirecting to ContextPulse on your Android device to switch your active context automatically.</p>
+
+    <div class="trigger-box">
+      <div class="trigger-label">Detected QR Trigger</div>
+      <div class="trigger-value" id="triggerDisplay">Loading...</div>
+    </div>
+
+    <a id="openIntentBtn" class="btn" href="#">Open in ContextPulse</a>
+    <a id="openCustomSchemeBtn" class="btn-secondary" href="#">Launch via Direct Deep Link</a>
+
+    <p class="status" id="statusText">If ContextPulse does not open automatically within 1 second, tap "Open in ContextPulse" above.</p>
+  </div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      let triggerId = params.get("trigger") || params.get("id") || params.get("room") || "";
+      const triggerName = params.get("name") || "";
+
+      if (!triggerId && window.location.hash) {
+        triggerId = window.location.hash.replace(/^#\/?/, "");
+      }
+      if (!triggerId) {
+        const parts = window.location.pathname.split("/").filter(Boolean);
+        const lastPart = parts[parts.length - 1];
+        if (lastPart && lastPart !== "index.html" && lastPart !== "ContextPulse") {
+          triggerId = lastPart;
+        }
+      }
+      if (!triggerId) {
+        triggerId = "qr_default";
+      }
+
+      const displayEl = document.getElementById("triggerDisplay");
+      displayEl.textContent = triggerName ? (triggerName + " (" + triggerId + ")") : triggerId;
+
+      const customSchemeUrl = "contextpulse://trigger/" + encodeURIComponent(triggerId);
+      const androidIntentUrl =
+        "intent://trigger/" + encodeURIComponent(triggerId) +
+        "#Intent;scheme=contextpulse;package=com.aistudio.contextpulse.rkzpvq;S.browser_fallback_url=" +
+        encodeURIComponent(window.location.href) + ";end";
+
+      document.getElementById("openIntentBtn").setAttribute("href", androidIntentUrl);
+      document.getElementById("openCustomSchemeBtn").setAttribute("href", customSchemeUrl);
+
+      // Immediately attempt deep-link activation
+      setTimeout(function() {
+        window.location.replace(customSchemeUrl);
+      }, 120);
+      setTimeout(function() {
+        window.location.href = androidIntentUrl;
+      }, 650);
+    })();
+  </script>
+</body>
+</html>

@@ -10,16 +10,19 @@ import com.contextpulse.phase0.ble.Phase0BleService
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        Log.d("BootReceiver", "Device boot completed with action: $action")
-        if (action == Intent.ACTION_BOOT_COMPLETED || action == "android.intent.action.QUICKBOOT_POWERON") {
-            val serviceIntent = Intent(context, Phase0BleService::class.java).apply {
-                this.action = Phase0BleService.ACTION_START
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
+        Log.d("BootReceiver", "Device boot or update completed with action: $action")
+        if (action == Intent.ACTION_BOOT_COMPLETED ||
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED
+        ) {
+            // Immediately re-evaluate active context and scheduled mode on device reboot
+            ProfileActivationHelper.reapplyCurrentActive(context)
+
+            // Recalculate and schedule the next boundary alarm
+            ModeScheduleManager.scheduleNextBoundaryAlarm(context)
+
+            // Start BLE foreground service only if permissions are present
+            Phase0BleService.start(context)
         }
     }
 }

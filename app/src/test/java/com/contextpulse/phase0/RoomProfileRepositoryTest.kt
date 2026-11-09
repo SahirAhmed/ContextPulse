@@ -2,229 +2,149 @@ package com.contextpulse.phase0
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.contextpulse.phase0.model.RoomItem
+import com.contextpulse.phase0.model.ContextTimeframeMode
 import com.contextpulse.phase0.model.RoomProfile
 import com.contextpulse.phase0.repository.RoomProfileRepository
-import org.junit.Assert.*
+import com.contextpulse.phase0.security.AppLockManager
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.Calendar
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
 class RoomProfileRepositoryTest {
 
     private lateinit var context: Context
-    private lateinit var repository: RoomProfileRepository
 
     @Before
     fun setUp() {
-        context = ApplicationProvider.getApplicationContext<Context>()
-        // Clear preferences before each test
+        context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("contextpulse_room_profiles_v1", Context.MODE_PRIVATE)
             .edit()
             .clear()
             .commit()
-
-        repository = RoomProfileRepository(context)
+        context.getSharedPreferences("contextpulse_security_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
     }
 
     @Test
-    fun `test initial default rooms are created with independent profiles`() {
-        val rooms = repository.rooms.value
-        assertTrue("Should contain initial rooms", rooms.isNotEmpty())
-        val names = rooms.map { it.name }
-        assertTrue("Contains Bedroom", names.contains("Bedroom"))
-        assertTrue("Contains Living Room", names.contains("Living Room"))
-        assertTrue("Contains Office", names.contains("Office"))
-        assertTrue("Contains Mosque", names.contains("Mosque"))
+    fun seedsDefaultRoomsAndPersistsProfileUpdatesAcrossInstances() {
+        val repo1 = RoomProfileRepository(context)
+        val rooms = repo1.rooms.value
 
-        // Verify independent profiles
-        val bedroom = rooms.find { it.name == "Bedroom" }!!
-        val mosque = rooms.find { it.name == "Mosque" }!!
+        assertEquals(4, rooms.size)
+        val bedroom = rooms.first { it.name == "Bedroom" }
+        assertTrue(bedroom.profile.dndEnabled)
+        assertEquals(25, bedroom.profile.brightnessPercent)
 
-        assertNotEquals(bedroom.id, mosque.id)
-        // Bedroom defaults to 25% brightness, Mosque defaults to 40%
-        assertNotEquals(bedroom.profile.brightnessLevel, mosque.profile.brightnessLevel)
+        val updatedModes = bedroom.profile.normalizedModes().map { mode ->
+            if (mode.isDefault) {
+                mode.copy(
+                    dndEnabled = false,
+                    brightnessEnabled = true,
+                    brightnessPercent = 88,
+                    appRestrictionsEnabled = true,
+                    blockedApps = listOf("com.instagram.android", "com.zhiliaoapp.musically")
+                )
+            } else {
+                mode
+            }
+        }
+        val updatedProfile = bedroom.profile.copy(modes = updatedModes).syncFromModes()
+        repo1.updateRoomProfile(bedroom.id, updatedProfile)
+        repo1.setActiveRoom(bedroom.id)
+
+        val repo2 = RoomProfileRepository(context)
+        val reloadedBedroom = repo2.getRoomById(bedroom.id)
+        assertNotNull(reloadedBedroom)
+        assertTrue(reloadedBedroom!!.isActive)
+        assertFalse(reloadedBedroom.profile.dndEnabled)
+        assertEquals(88, reloadedBedroom.profile.brightnessPercent)
+        assertTrue(reloadedBedroom.profile.appRestrictionsEnabled)
+        assertEquals(2, reloadedBedroom.profile.blockedApps.size)
+        assertEquals(bedroom.id, repo2.activeRoom.value?.id)
+
+        repo2.setActiveRoom(null)
+        assertNull(repo2.activeRoom.value)
     }
 
     @Test
-    fun `test creating room with independent profile`() {
-        val studyProfile = RoomProfile(
-            dndEnabled = true,
-            dndMode = "Priority Only",
-            brightnessEnabled = true,
-            brightnessLevel = 75,
-            appRestrictionsEnabled = true,
-            restrictedApps = listOf("Instagram", "Games"),
-            notificationBehaviorEnabled = true,
-            notificationMode = "Mute All"
+    fun deletingAndReAddingContextCreatesCompletelyCleanProfileWithoutOldModes() {
+        val repo = RoomProfileRepository(context)
+        val oldBedroom = repo.rooms.value.first { it.name == "Bedroom" }
+        assertTrue(oldBedroom.profile.normalizedModes().size > 1)
+
+        // Delete Bedroom and add a brand-new Bedroom context
+        repo.deleteRoom(oldBedroom.id)
+        val newBedroom = repo.addRoom("Bedroom")
+
+        // Brand-new context must only have 1 blank Default Mode and no old Custom Modes
+        val modes = newBedroom.profile.normalizedModes()
+        assertEquals(1, modes.size)
+        assertTrue(modes.first().isDefault)
+        assertFalse(modes.first().dndEnabled)
+        assertFalse(modes.first().brightnessEnabled)
+        assertFalse(modes.first().appRestrictionsEnabled)
+    }
+
+    @Test
+    fun disablingCustomModeFallsBackToDefaultMode() {
+        val customMode = ContextTimeframeMode(
+            id = "custom_work",
+            name = "Work Focus",
+            isDefault = false,
+            isEnabled = true,
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            daysOfWeek = setOf(Calendar.MONDAY)
         )
-
-        val newRoom = repository.createRoom(name = "Study Hall", profile = studyProfile)
-
-        val retrieved = repository.rooms.value.find { it.id == newRoom.id }
-        assertNotNull("New room should exist", retrieved)
-        assertEquals("Study Hall", retrieved!!.name)
-        assertEquals(75, retrieved.profile.brightnessLevel)
-        assertTrue(retrieved.profile.dndEnabled)
-        assertEquals(listOf("Instagram", "Games"), retrieved.profile.restrictedApps)
-    }
-
-    @Test
-    fun `test editing one room profile does not affect other rooms`() {
-        val rooms = repository.rooms.value
-        val roomA = rooms[0]
-        val roomB = rooms[1]
-
-        val initialProfileB = roomB.profile
-
-        // Modify roomA's profile
-        val updatedProfileA = roomA.profile.copy(
-            brightnessEnabled = true,
-            brightnessLevel = 95,
-            dndEnabled = true,
-            dndMode = "Total Silence",
-            restrictedApps = listOf("TikTok")
+        val defaultMode = ContextTimeframeMode(
+            id = "default_mode",
+            name = "Default",
+            isDefault = true,
+            isEnabled = true
         )
-        repository.updateRoomProfile(roomA.id, updatedProfileA)
-
-        // Verify roomA was updated
-        val retrievedA = repository.rooms.value.find { it.id == roomA.id }!!
-        assertEquals(95, retrievedA.profile.brightnessLevel)
-        assertEquals("Total Silence", retrievedA.profile.dndMode)
-
-        // Verify roomB was completely untouched
-        val retrievedB = repository.rooms.value.find { it.id == roomB.id }!!
-        assertEquals(initialProfileB.brightnessLevel, retrievedB.profile.brightnessLevel)
-        assertEquals(initialProfileB.dndMode, retrievedB.profile.dndMode)
-        assertEquals(initialProfileB.dndEnabled, retrievedB.profile.dndEnabled)
-    }
-
-    @Test
-    fun `test manual room activation and switching updates active profile`() {
-        val rooms = repository.rooms.value
-        val bedroom = rooms.find { it.name == "Bedroom" }!!
-        val office = rooms.find { it.name == "Office" }!!
-
-        assertNull("Initially no room is active", repository.activeRoomId.value)
-        assertNull(repository.activeRoom.value)
-
-        // Activate Bedroom
-        repository.setActiveRoom(bedroom.id)
-        assertEquals(bedroom.id, repository.activeRoomId.value)
-        assertEquals("Bedroom", repository.activeRoom.value?.name)
-        assertEquals(bedroom.profile.brightnessLevel, repository.activeRoom.value?.profile?.brightnessLevel)
-
-        // Switch to Office
-        repository.setActiveRoom(office.id)
-        assertEquals(office.id, repository.activeRoomId.value)
-        assertEquals("Office", repository.activeRoom.value?.name)
-        assertEquals(office.profile.brightnessLevel, repository.activeRoom.value?.profile?.brightnessLevel)
-
-        // Deactivate
-        repository.setActiveRoom(null)
-        assertNull(repository.activeRoomId.value)
-        assertNull(repository.activeRoom.value)
-    }
-
-    @Test
-    fun `test room and profile persistence survives application restart`() {
-        // Create a custom room in current instance
-        val customProfile = RoomProfile(
-            dndEnabled = true,
-            dndMode = "Alarms Only",
-            brightnessEnabled = true,
-            brightnessLevel = 15,
-            appRestrictionsEnabled = true,
-            restrictedApps = listOf("YouTube", "Twitch"),
-            autoRestoreOnExit = true,
-            customNotes = "Quiet zone"
+        val profileEnabled = RoomProfile(
+            spaceName = "Study",
+            modes = listOf(defaultMode, customMode)
         )
-        val created = repository.createRoom(name = "Meditation Corner", profile = customProfile)
+        // At 10:00 AM on Monday, enabled Custom Mode takes priority over Default Mode
+        val resolvedWhenEnabled = profileEnabled.resolveActiveMode(10 * 60, Calendar.MONDAY)
+        assertEquals("custom_work", resolvedWhenEnabled.id)
 
-        // Set as active room
-        repository.setActiveRoom(created.id)
-        assertEquals(created.id, repository.activeRoomId.value)
-
-        // Simulate app restart by instantiating a new repository instance from the same context
-        val newRepositoryInstance = RoomProfileRepository(context)
-
-        // Verify rooms survived restart
-        val restoredRooms = newRepositoryInstance.rooms.value
-        val restoredRoom = restoredRooms.find { it.id == created.id }
-        assertNotNull("Saved room must survive restart", restoredRoom)
-        assertEquals("Meditation Corner", restoredRoom!!.name)
-        assertEquals(15, restoredRoom.profile.brightnessLevel)
-        assertEquals("Alarms Only", restoredRoom.profile.dndMode)
-        assertEquals(listOf("YouTube", "Twitch"), restoredRoom.profile.restrictedApps)
-        assertEquals("Quiet zone", restoredRoom.profile.customNotes)
-
-        // Verify active room selection survived restart
-        assertEquals(created.id, newRepositoryInstance.activeRoomId.value)
-        assertEquals("Meditation Corner", newRepositoryInstance.activeRoom.value?.name)
+        // When Custom Mode is toggled off (isEnabled = false), Default Mode applies
+        val profileDisabled = RoomProfile(
+            spaceName = "Study",
+            modes = listOf(defaultMode, customMode.copy(isEnabled = false))
+        )
+        val resolvedWhenDisabled = profileDisabled.resolveActiveMode(10 * 60, Calendar.MONDAY)
+        assertEquals("default_mode", resolvedWhenDisabled.id)
     }
 
     @Test
-    fun `test editing room name and deleting room`() {
-        val room = repository.createRoom("Temporary Room")
-        repository.updateRoomName(room.id, "Renamed Room")
+    fun recoveryCodeVerificationDisablesAppLock() {
+        val lockManager = AppLockManager.getInstance(context)
+        val recoveryCode = lockManager.setupPinAndGenerateRecoveryCode("123456")
+        assertNotNull(recoveryCode)
+        assertEquals(16, recoveryCode!!.length)
+        assertTrue(lockManager.isLockEnabled.value)
+        assertTrue(lockManager.verifyPin("123456"))
 
-        val renamed = repository.rooms.value.find { it.id == room.id }
-        assertNotNull(renamed)
-        assertEquals("Renamed Room", renamed!!.name)
-
-        // Delete room
-        repository.deleteRoom(room.id)
-        val deleted = repository.rooms.value.find { it.id == room.id }
-        assertNull("Room should be removed", deleted)
-    }
-
-    @Test
-    fun `test beacon trigger configurations can be added, updated, and persisted`() {
-        val room = repository.createRoom("Meeting Space")
-
-        // 1. Add a MAC address beacon
-        val macTrigger = com.contextpulse.phase0.model.BeaconTriggerConfig(
-            type = com.contextpulse.phase0.model.BeaconIdentifierType.MAC_ADDRESS,
-            macAddress = "AA:BB:CC:DD:EE:FF",
-            label = "Desk BLE Beacon"
-        )
-        repository.addTriggerToRoom(room.id, macTrigger)
-
-        // 2. Add an iBeacon trigger
-        val iBeaconTrigger = com.contextpulse.phase0.model.BeaconTriggerConfig(
-            type = com.contextpulse.phase0.model.BeaconIdentifierType.IBEACON,
-            uuid = "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0",
-            major = 10,
-            minor = 20,
-            label = "Ceiling iBeacon"
-        )
-        repository.addTriggerToRoom(room.id, iBeaconTrigger)
-
-        // Verify triggers in current repository
-        val updatedRoom = repository.rooms.value.find { it.id == room.id }!!
-        assertEquals(2, updatedRoom.triggerConfigs.size)
-        assertEquals("AA:BB:CC:DD:EE:FF", updatedRoom.triggerConfigs[0].macAddress)
-        assertEquals(com.contextpulse.phase0.model.BeaconIdentifierType.MAC_ADDRESS, updatedRoom.triggerConfigs[0].type)
-        assertEquals("E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", updatedRoom.triggerConfigs[1].uuid)
-        assertEquals(10, updatedRoom.triggerConfigs[1].major)
-        assertEquals(20, updatedRoom.triggerConfigs[1].minor)
-
-        // Simulate app restart
-        val newRepo = RoomProfileRepository(context)
-        val reloadedRoom = newRepo.rooms.value.find { it.id == room.id }!!
-        assertEquals(2, reloadedRoom.triggerConfigs.size)
-        assertEquals("Desk BLE Beacon", reloadedRoom.triggerConfigs[0].label)
-        assertEquals("Ceiling iBeacon", reloadedRoom.triggerConfigs[1].label)
-
-        // Remove one trigger
-        newRepo.removeTriggerFromRoom(room.id, macTrigger.id)
-        val afterRemoval = newRepo.rooms.value.find { it.id == room.id }!!
-        assertEquals(1, afterRemoval.triggerConfigs.size)
-        assertEquals("Ceiling iBeacon", afterRemoval.triggerConfigs[0].label)
+        // Using the 16-digit recovery code disables App Lock
+        val recovered = lockManager.verifyRecoveryCodeAndDisableLock(recoveryCode)
+        assertTrue(recovered)
+        assertFalse(lockManager.isLockEnabled.value)
     }
 }
-

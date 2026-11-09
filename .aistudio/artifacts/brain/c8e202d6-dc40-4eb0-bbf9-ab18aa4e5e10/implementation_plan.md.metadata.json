@@ -1,0 +1,6 @@
+{
+  "summary":  "Implementation plan for reliable, persistent background operation and context monitoring in ContextPulse. Unifies BLE scanning, trigger evaluation, scheduled mode switching, and automation application into a persistent Foreground Service, decoupling execution from the Activity and Compose UI while preserving the TRIGGER -> CONTEXT -> MODE -> AUTOMATIONS architecture.",
+  "updatedAt":  "2026-11-09T12:01:28.329955429Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

@@ -2,19 +2,27 @@ package com.contextpulse.phase0.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.hardware.biometrics.BiometricManager
+import android.os.Build
+import androidx.core.hardware.fingerprint.FingerprintManagerCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.security.MessageDigest
+import kotlin.random.Random
 
 enum class LockSessionPolicy(val key: String, val title: String, val description: String) {
-    ONCE_PER_SESSION("session", "Once Per App Session (Recommended)", "Enter your PIN once; stays unlocked until the app is closed or reopened."),
-    EVERY_ACTION("every_action", "Require On Every Action", "Strict security: prompts for your PIN every time you add, edit, or configure."),
-    GRACE_PERIOD_5_MIN("grace_5min", "5-Minute Inactivity Window", "Stays unlocked for 5 minutes after last PIN entry.")
+    EVERY_ACTION("every_action", "Require On Every Action", "Strict security: prompts for your PIN or fingerprint every time you edit contexts or triggers."),
+    GRACE_PERIOD_5_MIN("grace_5min", "5-Minute Inactivity Window", "Stays unlocked for 5 minutes after last verification.")
 }
 
 /**
- * Manages configuration locking with PIN / Biometrics.
- * When enabled, prevents Contexts and Triggers from being edited, created, or configured without PIN verification.
+ * Manages configuration and app security locking with PIN, Fingerprint/Biometrics, and 16-Digit Recovery Codes.
+ * When enabled:
+ * - Requires authentication on initial app launch.
+ * - Protects Contexts, Modes, Triggers, and Snooze actions.
+ * - Offers Fingerprint authentication with 6-digit PIN as the mandatory backup.
+ * - Provides 16-digit one-time recovery code to disable lock if PIN is forgotten.
  */
 class AppLockManager(private val context: Context) {
 
@@ -22,6 +30,7 @@ class AppLockManager(private val context: Context) {
         private const val PREFS_NAME = "contextpulse_lock_prefs"
         private const val KEY_LOCK_ENABLED = "key_lock_enabled"
         private const val KEY_PIN_HASH = "key_pin_hash"
+        private const val KEY_RECOVERY_HASH = "key_recovery_hash"
         private const val KEY_BIOMETRIC_ENABLED = "key_biometric_enabled"
         private const val KEY_SESSION_POLICY = "key_session_policy"
 
@@ -40,21 +49,43 @@ class AppLockManager(private val context: Context) {
     private val _isLockEnabled = MutableStateFlow(prefs.getBoolean(KEY_LOCK_ENABLED, false))
     val isLockEnabled: StateFlow<Boolean> = _isLockEnabled.asStateFlow()
 
-    private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false))
+    private val _isBiometricEnabled = MutableStateFlow(prefs.getBoolean(KEY_BIOMETRIC_ENABLED, true))
     val isBiometricEnabled: StateFlow<Boolean> = _isBiometricEnabled.asStateFlow()
 
     private val _sessionPolicy = MutableStateFlow(
-        LockSessionPolicy.entries.find { it.key == prefs.getString(KEY_SESSION_POLICY, LockSessionPolicy.ONCE_PER_SESSION.key) }
-            ?: LockSessionPolicy.ONCE_PER_SESSION
+        LockSessionPolicy.entries.find { it.key == prefs.getString(KEY_SESSION_POLICY, LockSessionPolicy.GRACE_PERIOD_5_MIN.key) }
+            ?: LockSessionPolicy.GRACE_PERIOD_5_MIN
     )
     val sessionPolicy: StateFlow<LockSessionPolicy> = _sessionPolicy.asStateFlow()
 
-    // In-memory session state (resets when process ends / app restarts)
+    // App entrance lock state (requires unlocking upon opening app)
+    private var appAccessUnlocked: Boolean = false
+    private val _isAppAccessUnlocked = MutableStateFlow(false)
+    val isAppAccessUnlockedFlow: StateFlow<Boolean> = _isAppAccessUnlocked.asStateFlow()
+
+    // In-memory session state for action modifications
     private var sessionUnlocked: Boolean = false
     private var lastUnlockedTimestamp: Long = 0L
 
     private val _isSessionUnlocked = MutableStateFlow(false)
     val isSessionUnlocked: StateFlow<Boolean> = _isSessionUnlocked.asStateFlow()
+
+    fun isAppAccessUnlocked(): Boolean {
+        if (!_isLockEnabled.value || !hasPin()) return true
+        return appAccessUnlocked
+    }
+
+    fun markAppAccessUnlocked() {
+        appAccessUnlocked = true
+        _isAppAccessUnlocked.value = true
+        markSessionUnlocked()
+    }
+
+    fun lockAppAccess() {
+        appAccessUnlocked = false
+        _isAppAccessUnlocked.value = false
+        lockSessionNow()
+    }
 
     fun isLockedForAction(): Boolean {
         if (!_isLockEnabled.value) return false
@@ -62,7 +93,6 @@ class AppLockManager(private val context: Context) {
 
         return when (_sessionPolicy.value) {
             LockSessionPolicy.EVERY_ACTION -> true
-            LockSessionPolicy.ONCE_PER_SESSION -> !sessionUnlocked
             LockSessionPolicy.GRACE_PERIOD_5_MIN -> {
                 if (!sessionUnlocked) true
                 else {
@@ -103,31 +133,74 @@ class AppLockManager(private val context: Context) {
         return prefs.getString(KEY_PIN_HASH, null) != null
     }
 
+    fun hasRecoveryCode(): Boolean {
+        return prefs.getString(KEY_RECOVERY_HASH, null) != null
+    }
+
     fun verifyPin(pin: String): Boolean {
         val stored = prefs.getString(KEY_PIN_HASH, null) ?: return false
-        val matches = stored == hashPin(pin)
+        val matches = stored == hashString(pin)
         if (matches) {
+            markAppAccessUnlocked()
             markSessionUnlocked()
         }
         return matches
     }
 
-    fun setPin(pin: String) {
-        val hash = hashPin(pin)
-        prefs.edit()
-            .putString(KEY_PIN_HASH, hash)
-            .putBoolean(KEY_LOCK_ENABLED, true)
-            .apply()
-        _isLockEnabled.value = true
-        markSessionUnlocked()
+    /**
+     * Generates a 16-digit recovery code grouped with hyphens (e.g. '4920-8192-3810-7412').
+     */
+    fun generateRecoveryCode(): String {
+        val digits = StringBuilder()
+        repeat(16) {
+            digits.append(Random.nextInt(0, 10))
+        }
+        return digits.toString()
     }
 
-    fun setLockEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_LOCK_ENABLED, enabled).apply()
-        _isLockEnabled.value = enabled
-        if (!enabled) {
-            lockSessionNow()
+    /**
+     * Helper to set PIN and return the generated 16-digit recovery code.
+     */
+    fun setupPinAndGenerateRecoveryCode(pin: String, biometricEnabled: Boolean = false): String {
+        val code = generateRecoveryCode()
+        setPinAndRecoveryCode(pin, code, biometricEnabled)
+        return code
+    }
+
+    /**
+     * Saves PIN, recovery code hash, and enables app lock.
+     */
+    fun setPinAndRecoveryCode(pin: String, recoveryCode: String, biometricEnabled: Boolean) {
+        val cleanRecovery = recoveryCode.replace("-", "").trim()
+        prefs.edit()
+            .putString(KEY_PIN_HASH, hashString(pin))
+            .putString(KEY_RECOVERY_HASH, hashString(cleanRecovery))
+            .putBoolean(KEY_LOCK_ENABLED, true)
+            .putBoolean(KEY_BIOMETRIC_ENABLED, biometricEnabled)
+            .apply()
+
+        _isLockEnabled.value = true
+        _isBiometricEnabled.value = biometricEnabled
+        // Once lock has been enabled, leave the session locked straightaway by default
+        appAccessUnlocked = true
+        _isAppAccessUnlocked.value = true
+        lockSessionNow()
+    }
+
+    /**
+     * Verifies the 16-digit recovery code.
+     * If valid, completely disables App Lock (sets it to toggled OFF) and unlocks access.
+     */
+    fun verifyRecoveryCodeAndDisableLock(enteredCode: String): Boolean {
+        val cleanEntered = enteredCode.replace("-", "").replace(" ", "").trim()
+        val storedHash = prefs.getString(KEY_RECOVERY_HASH, null) ?: return false
+        val matches = storedHash == hashString(cleanEntered)
+        if (matches) {
+            disableLock()
+            markAppAccessUnlocked()
+            return true
         }
+        return false
     }
 
     fun setBiometricEnabled(enabled: Boolean) {
@@ -135,22 +208,41 @@ class AppLockManager(private val context: Context) {
         _isBiometricEnabled.value = enabled
     }
 
+    fun isBiometricHardwareAvailable(): Boolean {
+        return BiometricAuthHelper.canAuthenticate(context)
+    }
+
+    fun hasEnrolledBiometrics(): Boolean {
+        return BiometricAuthHelper.hasEnrolledBiometrics(context)
+    }
+
+    fun isBiometricAvailable(): Boolean = isBiometricHardwareAvailable()
+
+    fun generateNewRecoveryCode(): String = generateRecoveryCode()
+
+    fun setPinWithRecovery(pin: String, recoveryCode: String) {
+        setPinAndRecoveryCode(pin, recoveryCode, _isBiometricEnabled.value)
+    }
+
     fun disableLock() {
         prefs.edit()
             .putBoolean(KEY_LOCK_ENABLED, false)
             .remove(KEY_PIN_HASH)
+            .remove(KEY_RECOVERY_HASH)
             .apply()
         _isLockEnabled.value = false
+        appAccessUnlocked = true
+        _isAppAccessUnlocked.value = true
         lockSessionNow()
     }
 
-    private fun hashPin(pin: String): String {
+    private fun hashString(input: String): String {
         return try {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            val hashBytes = digest.digest(pin.toByteArray())
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hashBytes = digest.digest(input.toByteArray())
             hashBytes.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
-            pin.hashCode().toString()
+            input.hashCode().toString()
         }
     }
 }

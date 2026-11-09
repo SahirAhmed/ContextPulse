@@ -20,12 +20,18 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import com.contextpulse.phase0.ui.components.contextPulseScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -219,7 +225,7 @@ fun PermissionsScreen(
         DetailedPermissionCard(
             icon = Icons.Outlined.Notifications,
             title = "Notifications",
-            subtitle = "Display active room status in status bar and profile change notifications",
+            subtitle = "Send alerts for context changes, battery drops (<20%), and active status in status bar",
             isGranted = state.notificationsEnabled,
             onToggle = { granted ->
                 if (granted) {
@@ -229,6 +235,44 @@ fun PermissionsScreen(
                 }
             },
             onOpenSettings = { permissionsRepository.openNotificationSettings(context) }
+        )
+
+        val lockManager = remember { com.contextpulse.phase0.security.AppLockManager.getInstance(context) }
+        val isBiometricToggleActive by lockManager.isBiometricEnabled.collectAsState()
+        val hasBiometricHardware = remember {
+            com.contextpulse.phase0.security.BiometricAuthHelper.canAuthenticate(context)
+        }
+        val hasEnrolledBiometrics = remember {
+            com.contextpulse.phase0.security.BiometricAuthHelper.hasEnrolledBiometrics(context)
+        }
+        DetailedPermissionCard(
+            icon = Icons.Outlined.Fingerprint,
+            title = "Biometric & Fingerprint Security",
+            subtitle = if (hasEnrolledBiometrics && isBiometricToggleActive) {
+                "Fingerprint biometric unlock is enabled. Tap to open device security settings, or toggle off to use PIN only."
+            } else if (hasEnrolledBiometrics && !isBiometricToggleActive) {
+                "Fingerprint sensor is registered on device, but currently toggled off in ContextPulse. Toggle on to enable."
+            } else if (hasBiometricHardware) {
+                "Fingerprint sensor detected! Tap here to register your fingerprints in Android Settings."
+            } else {
+                "Biometric sensor detected on device. Tap to open device security settings."
+            },
+            isGranted = hasEnrolledBiometrics && isBiometricToggleActive,
+            onToggle = { enabled ->
+                if (enabled) {
+                    if (hasEnrolledBiometrics) {
+                        lockManager.setBiometricEnabled(true)
+                    } else {
+                        openBiometricSettings(context)
+                    }
+                } else {
+                    lockManager.setBiometricEnabled(false)
+                }
+                permissionsRepository.refreshPermissions()
+            },
+            onOpenSettings = {
+                openBiometricSettings(context)
+            }
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -297,7 +341,64 @@ fun PermissionsScreen(
             onOpenSettings = { permissionsRepository.openOverlaySettings(context) }
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // OEM Autostart & HyperOS / MIUI Background Guidance Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(theme.surface)
+                .border(1.dp, theme.accent.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                .clickable {
+                    com.contextpulse.phase0.system.OemBackgroundHelper.openAutostartSettings(context)
+                }
+                .padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(theme.accent.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.BatterySaver,
+                            contentDescription = null,
+                            tint = theme.accent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "OEM Background & Autostart (Xiaomi / HyperOS)",
+                            color = theme.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Enable Autostart & No Restrictions to keep service running",
+                            color = theme.accent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Outlined.OpenInNew,
+                        contentDescription = "Open Settings",
+                        tint = theme.accent,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Device Scope & Automation Guarantee Card
         Box(
@@ -476,5 +577,43 @@ fun DetailedPermissionCard(
                 }
             }
         }
+    }
+}
+
+private fun openBiometricSettings(context: Context) {
+    android.widget.Toast.makeText(context, "Opening Device Security & Fingerprint Settings...", android.widget.Toast.LENGTH_SHORT).show()
+
+    val securityIntent = android.content.Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS).apply {
+        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
+    try {
+        context.startActivity(securityIntent)
+        return
+    } catch (_: Exception) {
+    }
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        try {
+            val enrollIntent = android.content.Intent(android.provider.Settings.ACTION_BIOMETRIC_ENROLL).apply {
+                putExtra(
+                    android.provider.Settings.EXTRA_BIOMETRIC_AUTHENTICATORS_ALLOWED,
+                    android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK
+                )
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(enrollIntent)
+            return
+        } catch (_: Exception) {
+        }
+    }
+
+    try {
+        val settingsIntent = android.content.Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(settingsIntent)
+    } catch (_: Exception) {
     }
 }

@@ -18,16 +18,16 @@ import com.contextpulse.phase0.model.RoomItem
 import com.contextpulse.phase0.model.TriggerSource
 import com.contextpulse.phase0.repository.RoomProfileRepository
 import com.contextpulse.phase0.system.ProfileActivationHelper
+import com.contextpulse.phase0.system.SnoozeManager
 import com.contextpulse.phase0.ui.MainActivity
-import com.contextpulse.phase0.ui.theme.AppThemeKey
 import com.contextpulse.phase0.ui.theme.AppThemeRepository
 import com.example.R
 
 /**
  * Home Screen Widget for ContextPulse:
- * - Allows users to view and switch between up to 3 chosen profiles directly from their home screen.
- * - Dynamically inherits the exact color scheme chosen by the user in AppThemeRepository.
- * - Highlights the currently active profile with the theme's primary color and active badge.
+ * - Allows users to view and switch between up to 3 chosen Contexts directly from their home screen.
+ * - Dynamically inherits the exact color scheme (including tertiary accents) chosen by the user.
+ * - Accurately reflects live Snooze / Pause status and updates immediately when the timer expires.
  */
 class ContextPulseWidgetProvider : AppWidgetProvider() {
 
@@ -61,11 +61,10 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             val activeRoom = roomRepo.activeRoom.value
             val activeRoomId = activeRoom?.id
 
-            val snoozeManager = com.contextpulse.phase0.system.SnoozeManager.getInstance(context)
+            val snoozeManager = SnoozeManager.getInstance(context)
             val isSnoozed = snoozeManager.isSnoozeActive()
             val remainingSnoozeMins = snoozeManager.getRemainingMinutes()
 
-            // Retrieve the chosen profile IDs in user's exact arranged order
             val chosenProfileIds = WidgetPreferences.getChosenProfileIds(context, appWidgetId)
             val chosenRooms = mutableListOf<RoomItem?>()
             for (id in chosenProfileIds) {
@@ -75,7 +74,6 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                 }
             }
 
-            // Fill up to 3 slots with null only (empty slot, without unwanted auto-filling)
             while (chosenRooms.size < 3) {
                 chosenRooms.add(null)
             }
@@ -91,7 +89,7 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             )
             remoteViews.setImageViewBitmap(R.id.widget_bg, bgBitmap)
 
-            // Brand Logo: matches the exact app drawer icon for the selected theme (white bg for white themes, dark for dark themes)
+            // Brand Logo
             val iconDrawable = androidx.core.content.ContextCompat.getDrawable(context, currentTheme.getLauncherIconResId())
             if (iconDrawable != null) {
                 val logoBmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
@@ -118,8 +116,8 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             )
             remoteViews.setOnClickPendingIntent(R.id.widget_brand_container, appPendingIntent)
 
-            // 2. Configure Button
-            remoteViews.setInt(R.id.widget_configure_icon, "setColorFilter", currentTheme.primaryHex.toInt())
+            // 2. Configure Button (Tinted with theme secondary accent color)
+            remoteViews.setInt(R.id.widget_configure_icon, "setColorFilter", currentTheme.accentHex.toInt())
             val configIntent = Intent(context, ContextPulseWidgetConfigureActivity::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -132,7 +130,7 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             )
             remoteViews.setOnClickPendingIntent(R.id.widget_btn_configure, configPendingIntent)
 
-            // 3. Render 3 Slots
+            // 3. Render 3 Context Slots
             val slotContainers = listOf(R.id.slot_1_container, R.id.slot_2_container, R.id.slot_3_container)
             val slotBgs = listOf(R.id.slot_1_bg, R.id.slot_2_bg, R.id.slot_3_bg)
             val slotTitles = listOf(R.id.slot_1_title, R.id.slot_2_title, R.id.slot_3_title)
@@ -152,7 +150,6 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                     val isActive = room.id == activeRoomId
 
                     if (isActive) {
-                        // ACTIVE PROFILE: Highlighted with theme primary color
                         val activeCardBitmap = createCardBitmap(
                             widthPx = 210,
                             heightPx = 110,
@@ -164,17 +161,23 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                         remoteViews.setTextViewText(titleId, room.name)
                         remoteViews.setTextColor(titleId, currentTheme.onPrimaryHex.toInt())
 
-                        val activeLabel = if (isSnoozed) "PAUSED (${remainingSnoozeMins}m)" else "ACTIVE"
+                        val activeLabel = if (isSnoozed && remainingSnoozeMins > 0) {
+                            "PAUSED (${remainingSnoozeMins}m)"
+                        } else {
+                            "ACTIVE"
+                        }
                         remoteViews.setTextViewText(statusId, activeLabel)
                         remoteViews.setTextColor(statusId, currentTheme.onPrimaryHex.toInt())
 
-                        // Active Glowing Dot Indicator
-                        val dotColor = if (isSnoozed) 0xFFF59E0B.toInt() else currentTheme.onPrimaryHex.toInt()
+                        val dotColor = if (isSnoozed && remainingSnoozeMins > 0) {
+                            0xFFF59E0B.toInt()
+                        } else {
+                            currentTheme.onPrimaryHex.toInt()
+                        }
                         val dotBitmap = createDotBitmap(16, dotColor)
                         remoteViews.setImageViewBitmap(indicatorId, dotBitmap)
                         remoteViews.setViewVisibility(indicatorId, View.VISIBLE)
                     } else {
-                        // INACTIVE PROFILE: Sleek surface card
                         val inactiveCardBitmap = createCardBitmap(
                             widthPx = 210,
                             heightPx = 110,
@@ -188,11 +191,10 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                         remoteViews.setTextColor(titleId, currentTheme.textPrimaryHex.toInt())
 
                         remoteViews.setTextViewText(statusId, "Switch")
-                        remoteViews.setTextColor(statusId, currentTheme.textSecondaryHex.toInt())
+                        remoteViews.setTextColor(statusId, currentTheme.tertiaryHex.toInt())
                         remoteViews.setViewVisibility(indicatorId, View.GONE)
                     }
 
-                    // Tapping slot switches profile immediately
                     val switchIntent = Intent(context, ContextPulseWidgetProvider::class.java).apply {
                         action = ACTION_SWITCH_PROFILE
                         putExtra(EXTRA_ROOM_ID, room.id)
@@ -205,7 +207,6 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                     )
                     remoteViews.setOnClickPendingIntent(containerId, switchPendingIntent)
                 } else {
-                    // EMPTY SLOT: Prompts adding a profile
                     val emptyCardBitmap = createCardBitmap(
                         widthPx = 210,
                         heightPx = 110,
@@ -215,14 +216,14 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                         strokeWidthPx = 1.5f
                     )
                     remoteViews.setImageViewBitmap(bgId, emptyCardBitmap)
-                    remoteViews.setTextViewText(titleId, "+ Profile")
-                    remoteViews.setTextColor(titleId, currentTheme.primaryHex.toInt())
-                    remoteViews.setTextViewText(statusId, "Add in App")
+                    remoteViews.setTextViewText(titleId, "+ Context")
+                    remoteViews.setTextColor(titleId, currentTheme.tertiaryHex.toInt())
+                    remoteViews.setTextViewText(statusId, "Configure")
                     remoteViews.setTextColor(statusId, currentTheme.textSecondaryHex.toInt())
                     remoteViews.setViewVisibility(indicatorId, View.GONE)
 
-                    // Tapping opens MainActivity
-                    remoteViews.setOnClickPendingIntent(containerId, appPendingIntent)
+                    // Tapping empty slot opens widget configuration directly
+                    remoteViews.setOnClickPendingIntent(containerId, configPendingIntent)
                 }
             }
 
@@ -302,13 +303,15 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
                     )
 
                     if (success && targetRoom != null) {
-                        Toast.makeText(context, "ContextPulse: '${targetRoom.name}' profile activated", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "ContextPulse: '${targetRoom.name}' context activated", Toast.LENGTH_SHORT).show()
                     }
                     updateAllWidgets(context)
                 }
             }
             ACTION_REFRESH_WIDGET,
             AppWidgetManager.ACTION_APPWIDGET_UPDATE -> {
+                // Ensure SnoozeManager evaluates expiration before refreshing widgets
+                SnoozeManager.getInstance(context).isSnoozeActive()
                 updateAllWidgets(context)
             }
         }

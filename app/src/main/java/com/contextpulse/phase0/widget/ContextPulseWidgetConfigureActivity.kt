@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
@@ -30,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,7 +65,6 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
             val rooms by roomRepo.rooms.collectAsState()
             val activeRoom by roomRepo.activeRoom.collectAsState()
 
-            // Pre-select currently chosen profiles
             val initialSelected = remember(appWidgetId, rooms) {
                 if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
                     WidgetPreferences.getChosenProfileIds(applicationContext, appWidgetId)
@@ -95,7 +92,7 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                                 if (selectedIds.size >= 3) {
                                     Toast.makeText(
                                         this,
-                                        "Maximum 3 profiles allowed in widget",
+                                        "Maximum 3 contexts allowed in widget",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     selectedIds
@@ -149,7 +146,7 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                                 setResult(Activity.RESULT_OK)
                             }
 
-                            Toast.makeText(this, "Widget setup saved", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Widget contexts saved", Toast.LENGTH_SHORT).show()
                             finish()
                         },
                         onCancel = { finish() }
@@ -192,13 +189,13 @@ fun WidgetConfigureScreen(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(theme.primary.copy(alpha = 0.15f)),
+                        .background(theme.tertiary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Widgets,
                         contentDescription = null,
-                        tint = theme.primary,
+                        tint = theme.tertiary,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -211,8 +208,8 @@ fun WidgetConfigureScreen(
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Choose and arrange up to 3 profiles (${selectedIds.size}/3)",
-                        color = theme.primary,
+                        text = "Choose and arrange up to 3 contexts (${selectedIds.size}/3)",
+                        color = theme.tertiary,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -229,7 +226,7 @@ fun WidgetConfigureScreen(
         // Live Widget Interactive Preview
         Text(
             text = "LIVE WIDGET PREVIEW",
-            color = theme.accent,
+            color = theme.tertiary,
             fontSize = 11.5.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.8.sp
@@ -237,7 +234,6 @@ fun WidgetConfigureScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Preview Card Container
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -293,7 +289,7 @@ fun WidgetConfigureScreen(
                                 )
                                 Text(
                                     text = if (room?.id == activeRoomId) "ACTIVE" else if (room != null) "Slot ${i + 1}" else "Not in use",
-                                    color = if (room?.id == activeRoomId) theme.onPrimary.copy(alpha = 0.85f) else theme.textSecondary,
+                                    color = if (room?.id == activeRoomId) theme.onPrimary.copy(alpha = 0.85f) else theme.tertiary,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -307,14 +303,19 @@ fun WidgetConfigureScreen(
         Spacer(modifier = Modifier.height(18.dp))
 
         Text(
-            text = "Select and arrange your widget profiles (use arrows to reorder):",
+            text = "Select and arrange your widget contexts (use arrows to reorder):",
             color = theme.textSecondary,
             fontSize = 12.5.sp
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Profiles list for selection and rearranging
+        val orderedRooms = remember(rooms, selectedIds) {
+            val selected = selectedIds.mapNotNull { id -> rooms.find { it.id == id } }
+            val unselected = rooms.filter { !selectedIds.contains(it.id) }
+            selected + unselected
+        }
+
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -328,20 +329,22 @@ fun WidgetConfigureScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "No contexts or profiles created yet. Please create contexts inside ContextPulse first.",
+                            text = "No contexts created yet. Please create contexts inside ContextPulse first.",
                             color = theme.textSecondary,
                             fontSize = 13.5.sp
                         )
                     }
                 }
             } else {
-                items(rooms, key = { it.id }) { room ->
+                items(orderedRooms, key = { it.id }) { room ->
                     val isSelected = selectedIds.contains(room.id)
                     val orderIndex = if (isSelected) selectedIds.indexOf(room.id) else -1
                     val selectionNumber = if (orderIndex >= 0) orderIndex + 1 else null
 
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateItem(),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) theme.surfaceVariant else theme.surface
@@ -364,7 +367,6 @@ fun WidgetConfigureScreen(
                                     .weight(1f)
                                     .clickable { onToggleProfile(room.id) }
                             ) {
-                                // Order Badge (1, 2, 3) or Unselected Dot
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
@@ -405,12 +407,12 @@ fun WidgetConfigureScreen(
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Box(
                                                 modifier = Modifier
-                                                    .background(theme.primary.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                                    .background(theme.tertiary.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
                                                     text = "ACTIVE",
-                                                    color = theme.primary,
+                                                    color = theme.tertiary,
                                                     fontSize = 8.5.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -418,18 +420,17 @@ fun WidgetConfigureScreen(
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
+                                    val modesCount = room.profile.normalizedModes().size
                                     Text(
-                                        text = room.subtitle.ifBlank { "Automations & triggers" },
+                                        text = "$modesCount configured mode${if (modesCount == 1) "" else "s"}",
                                         color = theme.textSecondary,
                                         fontSize = 11.5.sp
                                     )
                                 }
                             }
 
-                            // Rearrange arrows & Checkbox
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 if (isSelected && orderIndex >= 0) {
-                                    // Move Up Button
                                     IconButton(
                                         onClick = { onMoveUp(orderIndex) },
                                         enabled = orderIndex > 0,
@@ -438,12 +439,11 @@ fun WidgetConfigureScreen(
                                         Icon(
                                             imageVector = Icons.Default.ArrowUpward,
                                             contentDescription = "Move Up",
-                                            tint = if (orderIndex > 0) theme.primary else theme.textSecondary.copy(alpha = 0.3f),
+                                            tint = if (orderIndex > 0) theme.tertiary else theme.textSecondary.copy(alpha = 0.3f),
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
 
-                                    // Move Down Button
                                     IconButton(
                                         onClick = { onMoveDown(orderIndex) },
                                         enabled = orderIndex < selectedIds.size - 1,
@@ -452,7 +452,7 @@ fun WidgetConfigureScreen(
                                         Icon(
                                             imageVector = Icons.Default.ArrowDownward,
                                             contentDescription = "Move Down",
-                                            tint = if (orderIndex < selectedIds.size - 1) theme.primary else theme.textSecondary.copy(alpha = 0.3f),
+                                            tint = if (orderIndex < selectedIds.size - 1) theme.tertiary else theme.textSecondary.copy(alpha = 0.3f),
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -477,7 +477,6 @@ fun WidgetConfigureScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Save & Apply Button
         Button(
             onClick = onSave,
             modifier = Modifier

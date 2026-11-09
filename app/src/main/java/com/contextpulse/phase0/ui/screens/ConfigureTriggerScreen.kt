@@ -1,7 +1,10 @@
 package com.contextpulse.phase0.ui.screens
 
-import android.graphics.Bitmap
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,7 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,95 +25,97 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.contextpulse.phase0.model.TriggerItem
+import com.contextpulse.phase0.model.RegisteredBeacon
+import com.contextpulse.phase0.model.TriggerSource
 import com.contextpulse.phase0.model.TriggerType
 import com.contextpulse.phase0.repository.BeaconRepository
+import com.contextpulse.phase0.repository.PermissionsRepository
+import com.contextpulse.phase0.repository.RoomProfileRepository
+import com.contextpulse.phase0.system.ProfileActivationHelper
 import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
 import com.contextpulse.phase0.util.QrCodeUtil
-import java.util.UUID
 
 @Composable
 fun ConfigureTriggerScreen(
-    trigger: TriggerItem,
-    beaconRepo: BeaconRepository,
-    onSaveTrigger: (TriggerItem) -> Unit,
+    trigger: RegisteredBeacon,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    onSaved: () -> Unit
 ) {
-    val theme = LocalContextPulseTheme.current
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val theme = LocalContextPulseTheme.current
+    val beaconRepository = remember { BeaconRepository.getInstance(context) }
+    val permissionsRepo = remember { com.contextpulse.phase0.repository.PermissionsRepository.getInstance(context) }
+    val permState by permissionsRepo.state.collectAsState()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permissionsRepo.refreshPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val roomRepository = remember { RoomProfileRepository.getInstance(context) }
+    val rooms by roomRepository.rooms.collectAsState()
+
+    var nameText by remember(trigger.id) { mutableStateOf(trigger.name) }
+    var selectedType by remember(trigger.id) { mutableStateOf(trigger.type) }
+    var macText by remember(trigger.id) { mutableStateOf(trigger.macAddress) }
+    var uuidText by remember(trigger.id) { mutableStateOf(trigger.namespaceOrUuid) }
+    var instanceText by remember(trigger.id) { mutableStateOf(trigger.instanceOrMajorMinor) }
+    var nfcTagIdText by remember(trigger.id) {
+        mutableStateOf(trigger.nfcTagId.ifBlank { "04:A1:2B:${trigger.id.takeLast(4).uppercase()}" })
+    }
+
+    // Default to GitHub Pages AppLinks URL for sahirahmed.github.io
+    val defaultGitHubBridgeUrl = remember(trigger.id) {
+        "https://sahirahmed.github.io/ContextPulse/?trigger=${trigger.id}"
+    }
+
+    var selectedRoomId by remember(trigger.id, rooms) {
+        val initial = if (trigger.assignedRoomId.isNotBlank()) {
+            trigger.assignedRoomId
+        } else if (trigger.assignedRoomName.isNotBlank()) {
+            rooms.find { it.name.equals(trigger.assignedRoomName, ignoreCase = true) }?.id ?: ""
+        } else {
+            ""
+        }
+        mutableStateOf(initial)
+    }
+    var enterRssi by remember(trigger.id) { mutableFloatStateOf(trigger.enterRssiThreshold.toFloat()) }
+    var exitRssi by remember(trigger.id) { mutableFloatStateOf(trigger.exitRssiThreshold.toFloat()) }
+
+    var showBlePermissionDialog by remember { mutableStateOf(false) }
+
     val scrollState = rememberScrollState()
 
-    var name by remember { mutableStateOf(trigger.name) }
-    var selectedType by remember {
-        mutableStateOf(
-            if (trigger.type == TriggerType.UNCONFIGURED) TriggerType.BLE_BEACON else trigger.type
-        )
-    }
-    var code by remember {
-        mutableStateOf(
-            if (trigger.code.isBlank()) "CP-${UUID.randomUUID().toString().take(4).uppercase()}" else trigger.code
-        )
-    }
-    var macAddress by remember {
-        mutableStateOf(
-            if (trigger.macAddress.isBlank()) "AA:BB:CC:11:22:${UUID.randomUUID().toString().take(2).uppercase()}" else trigger.macAddress
-        )
-    }
-    var nfcTagUid by remember {
-        mutableStateOf(
-            if (trigger.nfcTagUid.isBlank()) "04:${UUID.randomUUID().toString().take(6).uppercase()}" else trigger.nfcTagUid
-        )
-    }
-    var qrPayload by remember {
-        mutableStateOf(
-            if (trigger.qrPayload.isBlank() || trigger.qrPayload.startsWith("contextpulse://")) {
-                "https://contextpulse.app/trigger/${trigger.id}"
-            } else {
-                trigger.qrPayload
-            }
-        )
-    }
-    var batteryPercent by remember { mutableStateOf(trigger.batteryPercent) }
-    var isOffline by remember { mutableStateOf(trigger.isOffline) }
-
-    // Duplicate name check
-    val isDuplicate = remember(name) {
-        name.isNotBlank() && beaconRepo.isDuplicateName(name, excludeId = trigger.id)
-    }
-
-    // QR Code Bitmap state
-    var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(qrPayload, selectedType) {
-        if (selectedType == TriggerType.QR_CODE) {
-            qrBitmap = QrCodeUtil.generateQrBitmap(qrPayload, size = 512)
-        }
-    }
-
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .background(theme.background)
+            .padding(horizontal = 20.dp)
+            .verticalScroll(scrollState)
     ) {
-        // Top Bar
+        // Top Bar - strictly aligned with ContextPulse top bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .statusBarsPadding()
+                .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
@@ -122,100 +127,146 @@ fun ConfigureTriggerScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = theme.textPrimary
+                        tint = theme.primary
                     )
                 }
-
+                Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
-                        text = "Configure Trigger",
-                        color = theme.textPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "TRIGGER SETUP",
+                        color = theme.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp
                     )
                     Text(
-                        text = "Set Up Detection Hardware",
-                        color = theme.textSecondary,
-                        fontSize = 12.5.sp
+                        text = nameText.ifBlank { "Configure Trigger" },
+                        color = theme.textPrimary,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
 
             Button(
                 onClick = {
-                    if (name.isBlank()) {
-                        Toast.makeText(context, "Please enter a trigger name", Toast.LENGTH_SHORT).show()
+                    if (selectedType == TriggerType.BLE_BEACON && !permissionsRepo.isBlePermissionsGranted()) {
+                        showBlePermissionDialog = true
                         return@Button
                     }
-                    if (isDuplicate) {
-                        Toast.makeText(context, "A trigger with this name already exists", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
+                    val isQrCode = selectedType == TriggerType.QR_CODE
+                    val targetRoom = if (isQrCode) null else rooms.find { it.id == selectedRoomId }
                     val updated = trigger.copy(
-                        name = name.trim(),
+                        name = nameText.trim().ifBlank { "Room Trigger" },
                         type = selectedType,
-                        isConfigured = true,
-                        code = code.trim(),
-                        macAddress = macAddress.trim(),
-                        nfcTagUid = nfcTagUid.trim(),
-                        qrPayload = qrPayload.trim(),
-                        batteryPercent = batteryPercent,
-                        isOffline = isOffline
+                        macAddress = macText.trim(),
+                        namespaceOrUuid = uuidText.trim(),
+                        instanceOrMajorMinor = instanceText.trim(),
+                        nfcTagId = nfcTagIdText.trim(),
+                        qrPayload = defaultGitHubBridgeUrl,
+                        assignedRoomId = if (isQrCode) trigger.assignedRoomId else (targetRoom?.id ?: ""),
+                        assignedRoomName = if (isQrCode) trigger.assignedRoomName else (targetRoom?.name ?: ""),
+                        enterRssiThreshold = enterRssi.toInt(),
+                        exitRssiThreshold = exitRssi.toInt()
                     )
-                    onSaveTrigger(updated)
-                    Toast.makeText(context, "Trigger configured successfully", Toast.LENGTH_SHORT).show()
-                    onBack()
+                    beaconRepository.saveOrUpdateBeacon(updated)
+                    Toast.makeText(
+                        context,
+                        "Saved '${updated.name}' trigger",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    onSaved()
                 },
-                enabled = name.isNotBlank() && !isDuplicate,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = theme.primary,
                     contentColor = theme.onPrimary
-                )
+                ),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(17.dp)
-                )
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Save", fontWeight = FontWeight.Bold)
+                Text("Save", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
             }
         }
 
-        Divider(color = theme.border, thickness = 1.dp)
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Scrollable Form Body
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+        // 1. Trigger Type Selector
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.surface),
+            border = BorderStroke(1.dp, theme.border)
         ) {
-            // Section 1: Trigger Name
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Trigger Name",
-                    color = theme.textPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold
+                    text = "TRIGGER TYPE",
+                    color = theme.tertiary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TriggerType.entries.filter { it != TriggerType.UNCONFIGURED }.forEach { typeOption ->
+                        val isSelected = selectedType == typeOption
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) theme.primary.copy(alpha = 0.16f) else theme.surfaceVariant
+                                )
+                                .border(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) theme.primary else theme.border,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    if (typeOption == TriggerType.BLE_BEACON && !permissionsRepo.isBlePermissionsGranted()) {
+                                        showBlePermissionDialog = true
+                                    }
+                                    selectedType = typeOption
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = when (typeOption) {
+                                        TriggerType.BLE_BEACON, TriggerType.UNCONFIGURED -> Icons.Outlined.BluetoothSearching
+                                        TriggerType.NFC_TAG -> Icons.Outlined.Nfc
+                                        TriggerType.QR_CODE -> Icons.Outlined.QrCode2
+                                    },
+                                    contentDescription = null,
+                                    tint = if (isSelected) theme.primary else theme.textSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = typeOption.label,
+                                    color = if (isSelected) theme.primary else theme.textPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    placeholder = { Text("e.g. Office Door Beacon, Bedside NFC") },
+                    value = nameText,
+                    onValueChange = { nameText = it },
+                    label = { Text("Trigger Name") },
                     singleLine = true,
-                    isError = isDuplicate,
-                    supportingText = {
-                        if (isDuplicate) {
-                            Text("A trigger with this name already exists. Choose a unique name.", color = Color(0xFFE53935))
-                        }
-                    },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = theme.primary,
                         unfocusedBorderColor = theme.border,
@@ -224,380 +275,543 @@ fun ConfigureTriggerScreen(
                     )
                 )
             }
+        }
 
-            // Section 2: Connection Method (BLE Beacon, NFC Chip, Room QR Code)
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Connection Method",
-                    color = theme.textPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
+        Spacer(modifier = Modifier.height(16.dp))
 
-                val methods = listOf(
-                    Triple(TriggerType.BLE_BEACON, "BLE Beacon Proximity", Icons.Outlined.Bluetooth),
-                    Triple(TriggerType.NFC_TAG, "NFC Chip Tag", Icons.Default.Nfc),
-                    Triple(TriggerType.QR_CODE, "Room QR Code", Icons.Default.QrCode2)
-                )
+        // 2. Linked Context Assignment
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.surface),
+            border = BorderStroke(1.dp, theme.border)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                if (selectedType == TriggerType.QR_CODE) {
+                    val assignedRoom = rooms.find { it.id == trigger.assignedRoomId }
+                        ?: rooms.find { it.name.equals(trigger.assignedRoomName, ignoreCase = true) }
+                    val linkedContextName = assignedRoom?.name ?: trigger.assignedRoomName.takeIf { it.isNotBlank() }
 
-                methods.forEach { (type, label, icon) ->
-                    val isSelected = selectedType == type
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) theme.primary.copy(alpha = 0.12f) else theme.surface)
-                            .border(
-                                1.5.dp,
-                                if (isSelected) theme.primary else theme.border,
-                                RoundedCornerShape(16.dp)
-                            )
-                            .clickable { selectedType = type }
-                            .padding(16.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Box(
+                    Text(
+                        text = "LINKED CONTEXT",
+                        color = theme.tertiary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = linkedContextName ?: "Unattached",
+                        color = if (linkedContextName != null) theme.textPrimary else theme.textSecondary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                } else {
+                    Text(
+                        text = "LINKED CONTEXT",
+                        color = theme.tertiary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Choose which Context activates when this trigger is detected.",
+                        color = theme.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rooms.forEach { room ->
+                            val isSelected = selectedRoomId == room.id
+                            Row(
                                 modifier = Modifier
-                                    .size(44.dp)
+                                    .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(if (isSelected) theme.primary else theme.border.copy(alpha = 0.3f)),
-                                contentAlignment = Alignment.Center
+                                    .background(
+                                        if (isSelected) theme.primary.copy(alpha = 0.14f) else theme.surfaceVariant
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) theme.primary else theme.border,
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable { selectedRoomId = room.id }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = if (isSelected) theme.onPrimary else theme.textSecondary,
-                                    modifier = Modifier.size(24.dp)
+                                Column {
+                                    Text(
+                                        text = room.name,
+                                        color = theme.textPrimary,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.5.sp
+                                    )
+                                    val modesCount = room.profile.normalizedModes().size
+                                    Text(
+                                        text = "$modesCount configured mode${if (modesCount == 1) "" else "s"}",
+                                        color = theme.textSecondary,
+                                        fontSize = 11.5.sp
+                                    )
+                                }
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { selectedRoomId = room.id },
+                                    colors = RadioButtonDefaults.colors(selectedColor = theme.primary)
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
 
-                            Column(modifier = Modifier.weight(1f)) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 3. Type-Specific Configuration
+        when (selectedType) {
+            TriggerType.BLE_BEACON, TriggerType.UNCONFIGURED -> {
+                if (!permState.bluetoothEnabled) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.14f)),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "Bluetooth & Location Permissions Disabled",
+                                color = Color(0xFFF59E0B),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Automatic BLE Beacon detection will remain disabled until you grant Nearby Devices & Fine Location permissions.",
+                                color = theme.textPrimary,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = Uri.fromParts("package", context.packageName, null)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
                                 Text(
-                                    text = label,
-                                    color = theme.textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "Enable in Android Settings",
+                                    color = Color(0xFFF59E0B),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
                                 )
+                            }
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.surface),
+                    border = BorderStroke(1.dp, theme.border)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "BLE BEACON PARAMETERS",
+                            color = theme.tertiary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = macText,
+                            onValueChange = { macText = it },
+                            label = { Text("Hardware MAC Address (Optional)") },
+                            placeholder = { Text("e.g. AA:BB:CC:11:22:33") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = uuidText,
+                            onValueChange = { uuidText = it },
+                            label = { Text("iBeacon UUID / Eddystone Namespace") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = instanceText,
+                            onValueChange = { instanceText = it },
+                            label = { Text("Major / Minor or Instance ID") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "Enter Proximity Threshold: ${enterRssi.toInt()} dBm",
+                            color = theme.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Slider(
+                            value = enterRssi,
+                            onValueChange = { enterRssi = it },
+                            valueRange = -95f..-45f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = theme.primary,
+                                activeTrackColor = theme.primary
+                            )
+                        )
+
+                        Text(
+                            text = "Exit Proximity Threshold: ${exitRssi.toInt()} dBm",
+                            color = theme.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                        Slider(
+                            value = exitRssi,
+                            onValueChange = { exitRssi = it },
+                            valueRange = -100f..-55f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = theme.primary,
+                                activeTrackColor = theme.primary
+                            )
+                        )
+                    }
+                }
+            }
+
+            TriggerType.NFC_TAG -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.surface),
+                    border = BorderStroke(1.dp, theme.border)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "NFC TAG CONFIGURATION",
+                            color = theme.tertiary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = nfcTagIdText,
+                            onValueChange = { nfcTagIdText = it },
+                            label = { Text("NFC Tag UID or Deep-Link URI") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Write 'contextpulse://trigger/${trigger.id}' to your physical NFC sticker or match its hardware UID above. Tapping your phone against the NFC tag will immediately toggle the linked Context.",
+                            color = theme.textSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        val nfcPayload = nfcTagIdText.trim().ifBlank { "contextpulse://trigger/${trigger.id}" }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(nfcPayload))
+                                    Toast.makeText(
+                                        context,
+                                        "NFC Payload copied to clipboard",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, theme.border)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.ContentCopy,
+                                    contentDescription = null,
+                                    tint = theme.textPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = when (type) {
-                                        TriggerType.BLE_BEACON -> "Continuous proximity sensing via Bluetooth iBeacon / Eddystone"
-                                        TriggerType.NFC_TAG -> "Instant physical tap to trigger profile via NTAG / Mifare chip"
-                                        TriggerType.QR_CODE -> "Printable room wall QR code for quick camera optical trigger"
-                                        else -> ""
-                                    },
-                                    color = theme.textSecondary,
+                                    text = "Copy URI",
+                                    color = theme.textPrimary,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp
                                 )
                             }
 
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { selectedType = type },
-                                colors = RadioButtonDefaults.colors(
-                                    selectedColor = theme.primary,
-                                    unselectedColor = theme.textSecondary
+                            OutlinedButton(
+                                onClick = {
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_SUBJECT, "ContextPulse NFC Trigger: ${nameText.ifBlank { trigger.name }}")
+                                        putExtra(Intent.EXTRA_TEXT, nfcPayload)
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Share Context NFC Tag"))
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, theme.border)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = null,
+                                    tint = theme.textPrimary,
+                                    modifier = Modifier.size(16.dp)
                                 )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Share Tag",
+                                    color = theme.textPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                val targetRoom = rooms.find { it.id == selectedRoomId }
+                                if (targetRoom != null) {
+                                    val updated = trigger.copy(
+                                        name = nameText.trim().ifBlank { "Room Trigger" },
+                                        type = selectedType,
+                                        nfcTagId = nfcTagIdText.trim().ifBlank { "contextpulse://trigger/${trigger.id}" },
+                                        assignedRoomId = targetRoom.id,
+                                        assignedRoomName = targetRoom.name
+                                    )
+                                    beaconRepository.saveOrUpdateBeacon(updated)
+                                    ProfileActivationHelper.toggleOrActivateFromTrigger(
+                                        context = context,
+                                        roomId = targetRoom.id,
+                                        triggerSource = TriggerSource.NFC_TAG,
+                                        triggerName = updated.name
+                                    )
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Select a Linked Context above first",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, theme.tertiary)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Nfc,
+                                contentDescription = null,
+                                tint = theme.tertiary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Test NFC Tap",
+                                color = theme.tertiary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
                             )
                         }
                     }
                 }
             }
 
-            // Section 3: Hardware Parameters based on selected connection type
-            when (selectedType) {
-                TriggerType.BLE_BEACON -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(theme.surface)
-                            .border(1.dp, theme.border, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Text(
-                            text = "BLE Beacon Parameters",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = theme.textPrimary
-                        )
-
-                        OutlinedTextField(
-                            value = code,
-                            onValueChange = { code = it },
-                            label = { Text("Hardware Code / Major ID") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        OutlinedTextField(
-                            value = macAddress,
-                            onValueChange = { macAddress = it },
-                            label = { Text("Hardware MAC Address / UUID") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        // Battery slider
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Simulated Beacon Battery",
-                                    fontSize = 13.5.sp,
-                                    color = theme.textSecondary
-                                )
-                                Text(
-                                    text = "$batteryPercent%",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (batteryPercent <= 20) Color(0xFFF59E0B) else theme.primary
-                                )
-                            }
-                            Slider(
-                                value = batteryPercent.toFloat(),
-                                onValueChange = { batteryPercent = it.toInt() },
-                                valueRange = 0f..100f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = theme.primary,
-                                    activeTrackColor = theme.primary
-                                )
-                            )
-                            if (batteryPercent <= 20) {
-                                Text(
-                                    text = "Low battery warning will alert the user automatically.",
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFFF59E0B)
-                                )
-                            }
-                        }
-
-                        // Broadcast status toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Broadcasting Signal",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = theme.textPrimary
-                                )
-                                Text(
-                                    text = if (!isOffline) "Transmitting BLE packets" else "Beacon radio stopped",
-                                    fontSize = 12.sp,
-                                    color = theme.textSecondary
-                                )
-                            }
-                            Switch(
-                                checked = !isOffline,
-                                onCheckedChange = { isOffline = !it },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = theme.onPrimary,
-                                    checkedTrackColor = theme.primary
-                                )
-                            )
-                        }
-                    }
+            TriggerType.QR_CODE -> {
+                val qrBitmap = remember(defaultGitHubBridgeUrl) {
+                    QrCodeUtil.generateQrBitmap(
+                        content = defaultGitHubBridgeUrl,
+                        size = 512
+                    )
                 }
 
-                TriggerType.NFC_TAG -> {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = theme.surface),
+                    border = BorderStroke(1.dp, theme.border)
+                ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(theme.surface)
-                            .border(1.dp, theme.border, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "NFC Tag Parameters",
-                            fontSize = 15.sp,
+                            text = "PRINTABLE CONTEXT QR CODE",
+                            color = theme.tertiary,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = theme.textPrimary
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier.align(Alignment.Start)
                         )
 
-                        OutlinedTextField(
-                            value = nfcTagUid,
-                            onValueChange = { nfcTagUid = it },
-                            label = { Text("NFC Chip UID") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        Spacer(modifier = Modifier.height(18.dp))
 
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(theme.background)
-                                .border(1.dp, theme.border, RoundedCornerShape(12.dp))
-                                .padding(14.dp)
+                                .size(230.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color.White)
+                                .padding(14.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "Payload Identifier",
-                                    fontSize = 12.sp,
-                                    color = theme.textSecondary
-                                )
-                                Text(
-                                    text = "contextpulse://trigger/${trigger.id}",
-                                    fontSize = 13.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = theme.primary
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                Toast.makeText(context, "Ready to write NFC chip. Tap tag to device.", Toast.LENGTH_SHORT).show()
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.primary.copy(alpha = 0.15f),
-                                contentColor = theme.primary
-                            )
-                        ) {
-                            Icon(Icons.Default.Nfc, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Ready To Scan / Write Tag", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                TriggerType.QR_CODE -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(theme.surface)
-                            .border(1.dp, theme.border, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "Room QR Code",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = theme.textPrimary
-                        )
-
-                        if (qrBitmap != null) {
-                            Box(
-                                modifier = Modifier
-                                    .size(200.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White)
-                                    .padding(12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            qrBitmap?.let { bmp ->
                                 Image(
-                                    bitmap = qrBitmap!!.asImageBitmap(),
-                                    contentDescription = "Room QR Code",
+                                    bitmap = bmp.asImageBitmap(),
+                                    contentDescription = "Context QR Code",
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
-                        } else {
-                            CircularProgressIndicator(color = theme.primary)
                         }
 
-                        Text(
-                            text = "Print and mount this QR code near the doorway, desk, or bedside. Scanning it with any camera or QR app will immediately activate the assigned context profile.",
-                            fontSize = 12.5.sp,
-                            color = theme.textSecondary,
-                            textAlign = TextAlign.Center
-                        )
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                        // Deep Link display
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(theme.background)
-                                .border(1.dp, theme.border, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = qrPayload,
-                                fontSize = 11.5.sp,
-                                color = theme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
-
-                        Row(
+                        Button(
+                            onClick = {
+                                val bmp = qrBitmap ?: QrCodeUtil.generateQrBitmap(defaultGitHubBridgeUrl, 512)
+                                if (bmp != null) {
+                                    QrCodeUtil.shareQrCode(context, bmp, nameText.ifBlank { trigger.name })
+                                } else {
+                                    Toast.makeText(context, "Generating QR image...", Toast.LENGTH_SHORT).show()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.primary,
+                                contentColor = theme.onPrimary
+                            )
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    val assigned = trigger.assignedRoomName
-                                    if (!assigned.isNullOrBlank()) {
-                                        val roomRepo = com.contextpulse.phase0.repository.RoomProfileRepository.getInstance(context)
-                                        val target = roomRepo.rooms.value.find { it.name.equals(assigned.trim(), ignoreCase = true) }
-                                        if (target != null) {
-                                            com.contextpulse.phase0.system.ProfileActivationHelper.activateProfile(
-                                                context = context,
-                                                roomId = target.id,
-                                                triggerSource = com.contextpulse.phase0.model.TriggerSource.QR_CODE,
-                                                reason = "QR Code Test: ${trigger.name}"
-                                            )
-                                            Toast.makeText(context, "QR Trigger Verified: Activated '$assigned'", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Context '$assigned' not found", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } else {
-                                        Toast.makeText(context, "Attach this trigger to a context first to test activation.", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, theme.primary)
-                            ) {
-                                Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(17.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Test Scan", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (qrBitmap != null) {
-                                        QrCodeUtil.shareQrCode(context, qrBitmap!!, name)
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = theme.primary,
-                                    contentColor = theme.onPrimary
-                                )
-                            ) {
-                                Icon(Icons.Outlined.Print, contentDescription = null, modifier = Modifier.size(17.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Print / Share", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
+                            Icon(
+                                imageVector = Icons.Outlined.Share,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Share QR Code",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
                         }
                     }
                 }
-
-                else -> {}
             }
-
-            Spacer(modifier = Modifier.height(30.dp))
         }
+
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    if (showBlePermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showBlePermissionDialog = false },
+            containerColor = theme.surface,
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.BluetoothSearching,
+                    contentDescription = null,
+                    tint = theme.tertiary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Bluetooth & Location Permissions Required",
+                    color = theme.textPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Text(
+                    text = "To use BLE Beacon proximity triggers, please grant Nearby Devices (Bluetooth Scan) and Fine Location permissions in Android Settings. Otherwise, BLE beacon detection will remain disabled.",
+                    color = theme.textSecondary,
+                    fontSize = 13.5.sp,
+                    lineHeight = 19.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBlePermissionDialog = false
+                        try {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.primary,
+                        contentColor = theme.onPrimary
+                    )
+                ) {
+                    Text("Open Android Settings", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBlePermissionDialog = false
+                        val isQrCode = selectedType == TriggerType.QR_CODE
+                        val targetRoom = if (isQrCode) null else rooms.find { it.id == selectedRoomId }
+                        val updated = trigger.copy(
+                            name = nameText.trim().ifBlank { "Room Trigger" },
+                            type = selectedType,
+                            macAddress = macText.trim(),
+                            namespaceOrUuid = uuidText.trim(),
+                            instanceOrMajorMinor = instanceText.trim(),
+                            nfcTagId = nfcTagIdText.trim(),
+                            qrPayload = defaultGitHubBridgeUrl,
+                            assignedRoomId = if (isQrCode) trigger.assignedRoomId else (targetRoom?.id ?: ""),
+                            assignedRoomName = if (isQrCode) trigger.assignedRoomName else (targetRoom?.name ?: ""),
+                            enterRssiThreshold = enterRssi.toInt(),
+                            exitRssiThreshold = exitRssi.toInt()
+                        )
+                        beaconRepository.saveOrUpdateBeacon(updated)
+                        Toast.makeText(
+                            context,
+                            "Saved '${updated.name}' (BLE remains disabled until permission is granted)",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        onSaved()
+                    }
+                ) {
+                    Text("Save Anyway", color = theme.textSecondary)
+                }
+            }
+        )
     }
 }

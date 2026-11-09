@@ -1,5 +1,22 @@
 package com.contextpulse.phase0.model
 
+enum class PermissionActionType {
+    DND_POLICY,
+    WRITE_SETTINGS,
+    ACCESSIBILITY_SERVICE,
+    USAGE_ACCESS,
+    OVERLAY_PERMISSION,
+    RUNTIME_BLE_AND_NOTIFICATIONS
+}
+
+data class CapabilityItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val isGranted: Boolean,
+    val actionType: PermissionActionType
+)
+
 enum class CapabilityTestId {
     BLE_SCANNING,
     BLE_BEACON_ID,
@@ -70,7 +87,8 @@ data class BleBeaconInfo(
     val estimatedDistanceMeters: Double = 0.0,
     val lastSeenMonotonicMs: Long = android.os.SystemClock.elapsedRealtime(),
     val isRegisteredRoomBeacon: Boolean = false,
-    val assignedRoomName: String? = null
+    val assignedRoomName: String? = null,
+    val batteryPercentage: Int? = null
 )
 
 data class RoomBeaconDefinition(
@@ -79,14 +97,17 @@ data class RoomBeaconDefinition(
     val macAddress: String,
     val uuid: String? = null,
     val major: Int? = null,
-    val minor: Int? = null
+    val minor: Int? = null,
+    val namespace: String? = null,
+    val instance: String? = null,
+    val beaconType: BeaconType = BeaconType.IBEACON
 )
 
 data class SystemStateSnapshot(
-    val brightnessMode: Int, // 0 = Manual, 1 = Auto
-    val brightnessValue: Int, // 0..255
-    val ringerMode: Int, // RINGER_MODE_NORMAL, SILENT, VIBRATE
-    val dndFilter: Int, // INTERRUPTION_FILTER_ALL, PRIORITY, NONE, ALARMS
+    val brightnessMode: Int,
+    val brightnessValue: Int,
+    val ringerMode: Int,
+    val dndFilter: Int,
     val timestamp: Long = System.currentTimeMillis()
 )
 

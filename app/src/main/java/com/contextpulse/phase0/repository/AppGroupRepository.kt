@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 
 /**
- * Persistent repository managing user-defined App Groups for bulk profile blocking rules.
+ * Persistent repository managing user-defined App Groups for bulk mode blocking rules.
  */
 class AppGroupRepository(private val context: Context) {
 
@@ -30,6 +30,7 @@ class AppGroupRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val _appGroups = MutableStateFlow<List<AppGroup>>(emptyList())
     val appGroups: StateFlow<List<AppGroup>> = _appGroups.asStateFlow()
+    val groups: StateFlow<List<AppGroup>> get() = appGroups
 
     init {
         loadData()
@@ -73,6 +74,17 @@ class AppGroupRepository(private val context: Context) {
             if (it.id == id) it.copy(name = name.trim(), packageNames = packageNames.distinct()) else it
         }
         persist(updated)
+    }
+
+    fun saveOrUpdateGroup(group: AppGroup) {
+        val current = _appGroups.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == group.id }
+        if (idx >= 0) {
+            current[idx] = group
+        } else {
+            current.add(group)
+        }
+        persist(current)
     }
 
     fun deleteGroup(id: String) {

@@ -1,247 +1,333 @@
 package com.contextpulse.phase0.ui.components
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
 
-data class TourStep(
+private data class TourStep(
+    val stepNumber: Int,
+    val targetTab: ContextPulseTab? = null,
+    val isSettingsScreen: Boolean = false,
+    val badgeTitle: String,
     val title: String,
-    val subtitle: String,
     val description: String,
-    val icon: ImageVector,
-    val tip: String
+    val bulletPoints: List<String>,
+    val icon: ImageVector
 )
 
 @Composable
 fun TourGuideOverlay(
-    onDismiss: () -> Unit
+    onDismiss: (() -> Unit)? = null,
+    onNavigateStep: ((targetTab: ContextPulseTab?, isSettings: Boolean) -> Unit)? = null,
+    onFinishTour: (() -> Unit)? = null
 ) {
     val theme = LocalContextPulseTheme.current
-    var currentStepIndex by remember { mutableStateOf(0) }
+    val handleFinish: () -> Unit = {
+        onFinishTour?.invoke()
+        onDismiss?.invoke()
+        Unit
+    }
 
-    val steps = listOf(
-        TourStep(
-            title = "Welcome to ContextPulse",
-            subtitle = "Smart automation for your physical spaces",
-            description = "ContextPulse adapts your phone automatically as you move between rooms—adjusting display brightness, muting alerts, and blocking distracting apps so you stay present.",
-            icon = Icons.Default.Explore,
-            tip = "Tap 'Contexts' below whenever you're ready to create your first space."
-        ),
-        TourStep(
-            title = "Contexts & Smart Modes",
-            subtitle = "Tailored settings for every hour",
-            description = "Customize Do Not Disturb, screen brightness, eye comfort, and app limits. You can even set timeframes so a room switches between daytime focus and evening rest.",
-            icon = Icons.Default.Layers,
-            tip = "Add app groups in Settings to quickly restrict multiple apps at once."
-        ),
-        TourStep(
-            title = "Connect Physical Triggers",
-            subtitle = "Automatic detection around your home",
-            description = "Link your spaces to Bluetooth beacons for hands-free proximity detection, tap an NFC sticker on your desk, or scan a printed room QR code to switch instantly.",
-            icon = Icons.Default.Sensors,
-            tip = "ContextPulse monitors trigger connection health to ensure reliable switching."
-        ),
-        TourStep(
-            title = "Pause Automations Anytime",
-            subtitle = "Quick temporary breaks with Zzz",
-            description = "Need quick access to a blocked app? Tap the Zzz button in the top bar to pause automations for 5 to 60 minutes. It ticks down live and can be resumed anytime.",
-            icon = Icons.Default.Bedtime,
-            tip = "Keep your setup secure with the optional 6-digit PIN in Settings."
+    val steps = remember {
+        listOf(
+            TourStep(
+                stepNumber = 1,
+                targetTab = ContextPulseTab.HOME,
+                badgeTitle = "WELCOME TO CONTEXTPULSE",
+                title = "Live Context Dashboard & Snooze",
+                description = "Your Home screen displays your currently active Context and its active automation chips in real time, with at-a-glance metrics and recent activity.",
+                bulletPoints = listOf(
+                    "Active Context Card: Live status chips for Screen Brightness, Do Not Disturb, Eye Comfort, Blocked Apps, Auto-Opens, and Sticky Notes.",
+                    "At a Glance Cards: Real-time counts of your configured Contexts and Triggers with direct one-tap navigation.",
+                    "Recent Context Activity: Interactive 7-day diary showing your history of context switches and transitions.",
+                    "Snooze: Tap the Snooze button in the top header to temporarily pause all automations without deactivating."
+                ),
+                icon = Icons.Outlined.Home
+            ),
+            TourStep(
+                stepNumber = 2,
+                targetTab = ContextPulseTab.CONTEXTS,
+                badgeTitle = "STEP 2 • CONTEXTS & MODES",
+                title = "Default Baseline & Scheduled Modes",
+                description = "Create contextual profiles for your environments (e.g., Work, Home, Gym, Sleep). Each Context features a baseline Default Mode and optional scheduled Custom Modes.",
+                bulletPoints = listOf(
+                    "Default Mode: Baseline automations applied whenever no custom scheduled mode is active.",
+                    "Custom Modes: Automatically take priority during their configured hours and active days of the week.",
+                    "6 Automations: Configure Do Not Disturb, Screen Brightness, Eye Comfort, Blocked Apps, Auto-Open App, and Sticky Notes with task checklists.",
+                    "Reorder Contexts: Use visual up and down arrows to arrange contexts in your preferred order."
+                ),
+                icon = Icons.Outlined.Layers
+            ),
+            TourStep(
+                stepNumber = 3,
+                targetTab = ContextPulseTab.TRIGGERS,
+                badgeTitle = "STEP 3 • PHYSICAL TRIGGERS",
+                title = "BLE Beacons, NFC Tags & Room QR Codes",
+                description = "Link physical environment hardware or printable QR codes so your device switches contexts automatically.",
+                bulletPoints = listOf(
+                    "BLE Beacons: Real-time room entry and exit detection with live broadcasting and battery percentage status.",
+                    "NFC Tags: Tap your phone against an NFC tag or sticker to toggle the associated context.",
+                    "Room QR Codes: Generate high-resolution QR codes that instantly activate connected contexts when scanned.",
+                    "Reorder Triggers: Use visual arrows on trigger cards to organize your hardware list."
+                ),
+                icon = Icons.Outlined.Sensors
+            ),
+            TourStep(
+                stepNumber = 4,
+                targetTab = ContextPulseTab.PERMISSIONS,
+                badgeTitle = "STEP 4 • SYSTEM PERMISSIONS",
+                title = "Automation Permissions & Access",
+                description = "ContextPulse requires specific Android system permissions to automate device settings seamlessly in the background.",
+                bulletPoints = listOf(
+                    "Do Not Disturb & System Settings: Allows the app to adjust DND modes and screen brightness automatically.",
+                    "Usage Access & Notifications: Required to detect and block restricted apps, and send context switch alerts.",
+                    "Bluetooth & Nearby Devices: Enables background scanning and detection of physical BLE beacons.",
+                    "Biometric & Fingerprint: Links your device security to protect ContextPulse with App Lock."
+                ),
+                icon = Icons.Outlined.Security
+            ),
+            TourStep(
+                stepNumber = 5,
+                targetTab = null,
+                isSettingsScreen = true,
+                badgeTitle = "STEP 5 • SETTINGS & SECURITY",
+                title = "Themes, Notifications & App Lock",
+                description = "Tap the Settings gear in the top right to customize your experience, manage alert preferences, and protect your configuration.",
+                bulletPoints = listOf(
+                    "3 Colour Themes: Select between Modern Navy, Forest Emerald, and Canary Yellow across the entire app.",
+                    "Context Alerts: Toggle notifications for context switches and low beacon battery warnings.",
+                    "Blocked App Groups: Create custom application groups to easily block collections of apps during focus sessions.",
+                    "App Lock: Protect context editing, deactivation, and settings with a 6-digit PIN and biometric fingerprint."
+                ),
+                icon = Icons.Outlined.Settings
+            )
         )
-    )
+    }
 
-    val step = steps[currentStepIndex]
-    val isLast = currentStepIndex == steps.size - 1
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val currentStep = steps[currentIndex]
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false)
+    LaunchedEffect(currentIndex) {
+        onNavigateStep?.invoke(currentStep.targetTab, currentStep.isSettingsScreen)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .clickable(enabled = true, onClick = {})
+            .padding(horizontal = 20.dp, vertical = 32.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(26.dp),
-            color = theme.surface,
-            border = androidx.compose.foundation.BorderStroke(1.dp, theme.border),
-            shadowElevation = 24.dp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = theme.surface),
+            border = BorderStroke(1.5.dp, theme.primary)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(26.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(24.dp)
             ) {
-                // Header progress dots
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    steps.forEachIndexed { index, _ ->
-                        val isCurrent = index == currentStepIndex
-                        Box(
-                            modifier = Modifier
-                                .height(6.dp)
-                                .width(if (isCurrent) 22.dp else 6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(if (isCurrent) theme.primary else theme.border)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                AnimatedContent(
-                    targetState = step,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "TourStepContent"
-                ) { current ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(theme.primary.copy(alpha = 0.14f))
-                                .border(1.dp, theme.primary.copy(alpha = 0.3f), RoundedCornerShape(20.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = current.icon,
-                                contentDescription = null,
-                                tint = theme.primary,
-                                modifier = Modifier.size(34.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        Text(
-                            text = current.title,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = theme.textPrimary,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = current.subtitle,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = theme.primary,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = current.description,
-                            fontSize = 14.sp,
-                            color = theme.textSecondary,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 20.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(theme.primary.copy(alpha = 0.08f))
-                                .border(1.dp, theme.primary.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 14.dp, vertical = 11.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = null,
-                                    tint = theme.primary,
-                                    modifier = Modifier.size(17.dp)
-                                )
-                                Text(
-                                    text = current.tip,
-                                    fontSize = 12.sp,
-                                    color = theme.textPrimary,
-                                    lineHeight = 17.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(26.dp))
-
-                // Navigation buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (currentStepIndex > 0) {
-                        TextButton(
-                            onClick = { currentStepIndex-- },
-                            shape = RoundedCornerShape(12.dp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(theme.tertiary.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Back", color = theme.textSecondary, fontWeight = FontWeight.Medium)
+                            Icon(
+                                imageVector = currentStep.icon,
+                                contentDescription = null,
+                                tint = theme.tertiary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                    } else {
-                        TextButton(
-                            onClick = onDismiss,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Skip Tour", color = theme.textSecondary, fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = currentStep.badgeTitle,
+                            color = theme.tertiary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.9.sp
+                        )
+                    }
+
+                    IconButton(
+                        onClick = handleFinish,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Skip Tour",
+                            tint = theme.textSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = currentStep.title,
+                    color = theme.textPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = currentStep.description,
+                    color = theme.textSecondary,
+                    fontSize = 13.5.sp,
+                    lineHeight = 19.sp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(theme.surfaceVariant)
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    currentStep.bulletPoints.forEach { point ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 6.dp)
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(theme.primary)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = point,
+                                color = theme.textPrimary,
+                                fontSize = 12.5.sp,
+                                lineHeight = 17.5.sp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        steps.indices.forEach { idx ->
+                            val isActive = idx == currentIndex
+                            Box(
+                                modifier = Modifier
+                                    .height(8.dp)
+                                    .width(if (isActive) 24.dp else 8.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isActive) theme.primary else theme.border
+                                    )
+                            )
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            if (isLast) {
-                                onDismiss()
-                            } else {
-                                currentStepIndex++
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (currentIndex > 0) {
+                            OutlinedButton(
+                                onClick = { currentIndex -= 1 },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, theme.border),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = theme.textPrimary
+                                )
+                            ) {
+                                Text("Back", fontWeight = FontWeight.SemiBold)
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = theme.primary,
-                            contentColor = theme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = if (isLast) "Get Started" else "Next",
-                            fontWeight = FontWeight.Bold
-                        )
+                        } else {
+                            TextButton(onClick = handleFinish) {
+                                Text(
+                                    text = "Skip",
+                                    color = theme.textSecondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                if (currentIndex < steps.size - 1) {
+                                    currentIndex += 1
+                                } else {
+                                    handleFinish()
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = theme.primary,
+                                contentColor = theme.onPrimary
+                            )
+                        ) {
+                            val isLast = currentIndex == steps.size - 1
+                            Text(
+                                text = if (isLast) "Get Started" else "Next",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = if (isLast) Icons.Default.Check else Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+object TourPreferences {
+    private const val PREFS_NAME = "contextpulse_tour_prefs"
+    private const val KEY_TOUR_DONE = "initial_tour_completed_v1"
+
+    fun hasCompletedInitialTour(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_TOUR_DONE, false)
+    }
+
+    fun setInitialTourCompleted(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_TOUR_DONE, true).apply()
     }
 }

@@ -32,18 +32,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.contextpulse.phase0.model.AppUsageBudget
 import com.contextpulse.phase0.model.ContextItem
 import com.contextpulse.phase0.model.ContextTimeframeMode
+import com.contextpulse.phase0.model.StickyNoteCheckItem
 import com.contextpulse.phase0.model.RoomProfile
 import com.contextpulse.phase0.model.computeDefaultUncoveredSummary
 import com.contextpulse.phase0.model.sortModesChronologically
 import com.contextpulse.phase0.repository.RoomProfileRepository
+import com.contextpulse.phase0.system.ActiveConfigSnapshotManager
+import com.contextpulse.phase0.system.ProfileActivationHelper
 import com.contextpulse.phase0.system.SystemControllers
 import com.contextpulse.phase0.ui.components.AppSelectorDialog
+import com.contextpulse.phase0.ui.components.SingleAppSelectorDialog
 import com.contextpulse.phase0.ui.components.DND_MODES
 import com.contextpulse.phase0.ui.components.contextPulseLazyScrollbar
 import com.contextpulse.phase0.ui.components.loadInstalledApps
@@ -63,7 +71,30 @@ fun EditContextScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
-    BackHandler { onBack() }
+    val originalActiveRoomId = remember { roomRepo.activeRoomId.value }
+    var activePreviewModeId by remember {
+        mutableStateOf(ActiveConfigSnapshotManager.getActivePreviewModeId(context))
+    }
+
+    fun endActivePreviewIfRunning() {
+        if (activePreviewModeId != null || ActiveConfigSnapshotManager.isPreviewActive(context)) {
+            ProfileActivationHelper.restoreAfterPreview(context)
+            activePreviewModeId = null
+        }
+    }
+
+    val handleBackWithPreviewCleanup = {
+        endActivePreviewIfRunning()
+        onBack()
+    }
+
+    BackHandler { handleBackWithPreviewCleanup() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            endActivePreviewIfRunning()
+        }
+    }
 
     var contextName by remember { mutableStateOf(contextItem.name) }
     var contextSubtitle by remember { mutableStateOf(contextItem.subtitle) }
@@ -75,14 +106,14 @@ fun EditContextScreen(
             val loaded = if (contextItem.profile.modes.isNotEmpty()) {
                 contextItem.profile.modes
             } else {
-                listOf(ContextTimeframeMode(name = "Default", isAllTime = true))
+                listOf(ContextTimeframeMode(name = "Default", isDefault = true))
             }
-            val hasDefault = loaded.any { it.isAllTime || it.name.equals("Default", ignoreCase = true) }
+            val hasDefault = loaded.any { it.isDefault || it.name.equals("Default", ignoreCase = true) }
             val normalized = if (!hasDefault) {
-                listOf(ContextTimeframeMode(name = "Default", isAllTime = true)) + loaded
+                listOf(ContextTimeframeMode(name = "Default", isDefault = true)) + loaded
             } else {
                 loaded.map {
-                    if (it.name == "All Time Standard") it.copy(name = "Default", isAllTime = true) else it
+                    if (it.name == "All Time Standard") it.copy(name = "Default", isDefault = true) else it
                 }
             }
             addAll(sortModesChronologically(normalized))
@@ -287,13 +318,22 @@ fun EditContextScreen(
                         Button(
                             onClick = {
                                 if (newModeName.isNotBlank()) {
+                                    val startParts = newModeStartTime.split(":")
+                                    val sHour = startParts.getOrNull(0)?.toIntOrNull() ?: 9
+                                    val sMinute = startParts.getOrNull(1)?.toIntOrNull() ?: 0
+                                    val endParts = newModeEndTime.split(":")
+                                    val eHour = endParts.getOrNull(0)?.toIntOrNull() ?: 17
+                                    val eMinute = endParts.getOrNull(1)?.toIntOrNull() ?: 0
+
                                     val newMode = ContextTimeframeMode(
                                         id = UUID.randomUUID().toString(),
                                         name = newModeName.trim(),
-                                        isAllTime = false,
-                                        startTime = newModeStartTime.trim().ifEmpty { "09:00" },
-                                        endTime = newModeEndTime.trim().ifEmpty { "17:00" },
-                                        activeDays = newModeDays.sorted()
+                                        isDefault = false,
+                                        startHour = sHour,
+                                        startMinute = sMinute,
+                                        endHour = eHour,
+                                        endMinute = eMinute,
+                                        daysOfWeek = newModeDays
                                     )
                                     val reordered = sortModesChronologically(modes + newMode)
                                     modes.clear()
@@ -324,19 +364,20 @@ fun EditContextScreen(
             .fillMaxSize()
             .contextPulseLazyScrollbar(listState)
             .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 36.dp),
+        contentPadding = PaddingValues(bottom = 36.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        // Top Header
+        // Top Header - strictly aligned with ContextPulse top bar
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding(),
+                    .statusBarsPadding()
+                    .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onBack,
+                    onClick = handleBackWithPreviewCleanup,
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(12.dp))
@@ -400,15 +441,6 @@ fun EditContextScreen(
                                 Text("A context with this name already exists", color = Color(0xFFE53935))
                             }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = contextSubtitle,
-                        onValueChange = { contextSubtitle = it },
-                        label = { Text("Subtitle / Location description") },
-                        singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
@@ -503,7 +535,7 @@ fun EditContextScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "A space adapts based on time and day. All modes cover all 24 hours all 7 days.",
+                            text = "Custom modes have priority over the Default mode during their active windows. Outside scheduled windows, the Default mode applies automatically.",
                             color = theme.textSecondary,
                             fontSize = 12.sp,
                             lineHeight = 16.sp
@@ -527,18 +559,24 @@ fun EditContextScreen(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Mode", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        Text("Custom Mode", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                     }
                 }
 
                 // Modes List rendered in Chronological Order with Clean, Uncluttered Cards
                 modes.forEachIndexed { modeIndex, mode ->
                     val isDefault = mode.isAllTime || mode.name.equals("Default", ignoreCase = true)
+                    val isPreviewingThisMode = activePreviewModeId == mode.id
 
                     Card(
                         shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = theme.surface),
-                        border = BorderStroke(1.dp, theme.border),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isPreviewingThisMode) theme.primary.copy(alpha = 0.06f) else theme.surface
+                        ),
+                        border = BorderStroke(
+                            width = if (isPreviewingThisMode) 2.dp else 1.dp,
+                            color = if (isPreviewingThisMode) theme.primary else if (!isDefault && !mode.isEnabled) theme.border.copy(alpha = 0.5f) else theme.border
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -547,7 +585,7 @@ fun EditContextScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // Header: Mode title, tag badge, delete button (for custom)
+                            // Header: Mode title, tag badge, toggle switch, delete button
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -562,63 +600,149 @@ fun EditContextScreen(
                                         modifier = Modifier
                                             .size(38.dp)
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(theme.primary.copy(alpha = 0.12f)),
+                                            .background(
+                                                if (isPreviewingThisMode)
+                                                    theme.primary
+                                                else if (!isDefault && !mode.isEnabled)
+                                                    theme.textSecondary.copy(alpha = 0.12f)
+                                                else
+                                                    theme.primary.copy(alpha = 0.12f)
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = if (isDefault) Icons.Outlined.Layers else Icons.Outlined.Schedule,
+                                            imageVector = if (isPreviewingThisMode) Icons.Default.PlayArrow else if (isDefault) Icons.Outlined.Layers else Icons.Outlined.Schedule,
                                             contentDescription = null,
-                                            tint = theme.primary,
+                                            tint = if (isPreviewingThisMode) theme.onPrimary else if (!isDefault && !mode.isEnabled) theme.textSecondary else theme.primary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
 
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
                                                 text = mode.name,
-                                                fontSize = 16.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = theme.textPrimary
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                color = if (!isDefault && !mode.isEnabled) theme.textSecondary else theme.textPrimary,
+                                                modifier = Modifier.weight(1f, fill = false)
                                             )
+
+                                            // Dedicated Tags for Default Mode and Custom Mode
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(6.dp))
-                                                    .background(if (isDefault) theme.primary.copy(alpha = 0.12f) else theme.background)
-                                                    .border(1.dp, if (isDefault) theme.primary.copy(alpha = 0.35f) else theme.border, RoundedCornerShape(6.dp))
-                                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                                                    .background(if (isDefault) theme.primary.copy(alpha = 0.12f) else theme.accent.copy(alpha = 0.12f))
+                                                    .border(
+                                                        1.dp,
+                                                        if (isDefault) theme.primary.copy(alpha = 0.35f) else theme.accent.copy(alpha = 0.35f),
+                                                        RoundedCornerShape(6.dp)
+                                                    )
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
                                                 Text(
-                                                    text = if (isDefault) "Default Mode (24/7)" else "${mode.getDaysSummary()} • ${mode.startTime}–${mode.endTime}",
-                                                    fontSize = 11.sp,
+                                                    text = if (isDefault) "Default Mode" else "Custom Mode",
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = if (isDefault) theme.primary else theme.textSecondary
+                                                    color = if (isDefault) theme.primary else theme.accent
                                                 )
+                                            }
+
+                                            if (isPreviewingThisMode) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(theme.primary)
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(6.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Color.White)
+                                                        )
+                                                        Text(
+                                                            text = "Preview Active",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = theme.onPrimary
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            if (!isDefault && !mode.isEnabled) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0x22EF4444))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Disabled",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFFEF4444)
+                                                    )
+                                                }
                                             }
                                         }
 
+                                        Spacer(modifier = Modifier.height(3.dp))
                                         Text(
-                                            text = if (isDefault) "Automatic 24/7 Baseline" else "Active ${mode.getDaysSummary()} from ${mode.startTime} to ${mode.endTime}",
+                                            text = if (isDefault) {
+                                                "Automatic 24/7 Baseline Fallback"
+                                            } else {
+                                                "${mode.getDaysSummary()} • ${mode.startTime}–${mode.endTime} (Priority over Default)"
+                                            },
                                             fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                             color = theme.textSecondary
                                         )
                                     }
                                 }
 
-                                if (!isDefault) {
-                                    IconButton(
-                                        onClick = { modes.removeAt(modeIndex) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Delete,
-                                            contentDescription = "Delete Mode",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(18.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    // Toggle switch for custom modes (to enable or disable without deleting)
+                                    if (!isDefault) {
+                                        Switch(
+                                            checked = mode.isEnabled,
+                                            onCheckedChange = { isChecked ->
+                                                modes[modeIndex] = mode.copy(isEnabled = isChecked)
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = theme.onPrimary,
+                                                checkedTrackColor = theme.primary
+                                            )
                                         )
+
+                                        IconButton(
+                                            onClick = { modes.removeAt(modeIndex) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Delete,
+                                                contentDescription = "Delete Mode",
+                                                tint = Color(0xFFEF4444),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -694,7 +818,22 @@ fun EditContextScreen(
                                     letterSpacing = 0.5.sp
                                 )
 
-                                // Bullet 1: DND
+                                // 1. Auto-Open App
+                                val appOpenDisplay = if (mode.autoLaunchAppEnabled && mode.autoLaunchAppName.isNotBlank()) {
+                                    mode.autoLaunchAppName
+                                } else if (mode.autoLaunchAppEnabled && mode.autoLaunchPackage.isNotBlank()) {
+                                    mode.autoLaunchPackage
+                                } else {
+                                    "Disabled"
+                                }
+                                ModeConfigBullet(
+                                    icon = Icons.Default.RocketLaunch,
+                                    label = "Auto-Open App",
+                                    value = appOpenDisplay,
+                                    isActive = mode.autoLaunchAppEnabled && mode.autoLaunchPackage.isNotBlank()
+                                )
+
+                                // 2. Do Not Disturb
                                 ModeConfigBullet(
                                     icon = Icons.Default.DoNotDisturb,
                                     label = "Do Not Disturb",
@@ -702,15 +841,7 @@ fun EditContextScreen(
                                     isActive = mode.dndEnabled
                                 )
 
-                                // Bullet 2: Screen Brightness
-                                ModeConfigBullet(
-                                    icon = Icons.Default.BrightnessMedium,
-                                    label = "Screen Brightness",
-                                    value = if (mode.brightnessEnabled) "${mode.brightnessLevel}%" else "System default",
-                                    isActive = mode.brightnessEnabled
-                                )
-
-                                // Bullet 3: Eye Comfort / Night Light
+                                // 3. Eye Comfort
                                 ModeConfigBullet(
                                     icon = Icons.Default.NightlightRound,
                                     label = "Eye Comfort",
@@ -718,31 +849,123 @@ fun EditContextScreen(
                                     isActive = mode.eyeComfortEnabled
                                 )
 
-                                // Bullet 4: Blocked Apps
-                                val appCount = mode.restrictedApps.size
+                                // 4. Restricted Apps
+                                val blockedCount = mode.outrightBlockedCount
+                                val budgetCount = mode.budgetedAppsCount
+                                val totalRestricted = mode.totalRestrictedCount
+                                val restrictedValue = if (!mode.appRestrictionsEnabled || totalRestricted == 0) {
+                                    "None"
+                                } else {
+                                    val parts = mutableListOf<String>()
+                                    if (blockedCount > 0) parts.add("$blockedCount blocked")
+                                    if (budgetCount > 0) parts.add("$budgetCount budgeted")
+                                    "$totalRestricted total (${parts.joinToString(", ")})"
+                                }
                                 ModeConfigBullet(
                                     icon = Icons.Default.Apps,
-                                    label = "Blocked Apps",
-                                    value = if (mode.appRestrictionsEnabled && appCount > 0) "$appCount restricted" else "No apps restricted",
-                                    isActive = mode.appRestrictionsEnabled && appCount > 0
+                                    label = "Restricted Apps",
+                                    value = restrictedValue,
+                                    isActive = mode.appRestrictionsEnabled && totalRestricted > 0
+                                )
+
+                                // 5. Screen Brightness
+                                ModeConfigBullet(
+                                    icon = Icons.Default.BrightnessMedium,
+                                    label = "Screen Brightness",
+                                    value = if (mode.brightnessEnabled) "${mode.brightnessLevel}%" else "System default",
+                                    isActive = mode.brightnessEnabled
+                                )
+
+                                // 6. Sticky Note
+                                val stickySummary = if (!mode.stickyNoteEnabled) {
+                                    "Disabled"
+                                } else if (mode.stickyNoteChecklist.isNotEmpty()) {
+                                    "${mode.stickyNoteChecklist.size} checklist item(s)"
+                                } else if (mode.stickyNoteText.isNotBlank()) {
+                                    "Custom note configured"
+                                } else {
+                                    "Enabled"
+                                }
+                                ModeConfigBullet(
+                                    icon = Icons.Default.StickyNote2,
+                                    label = "Sticky Note",
+                                    value = stickySummary,
+                                    isActive = mode.stickyNoteEnabled && (mode.stickyNoteText.isNotBlank() || mode.stickyNoteChecklist.isNotEmpty())
                                 )
                             }
 
-                            // Button to configure mode actions
-                            OutlinedButton(
-                                onClick = { editingModeIdForConfig = mode.id },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(42.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = theme.primary
-                                ),
-                                border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.4f))
+                            // Action Buttons: Configure Mode Actions and Preview
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Configure Mode Actions", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                OutlinedButton(
+                                    onClick = { editingModeIdForConfig = mode.id },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = theme.primary
+                                    ),
+                                    border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.4f)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Configure", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                }
+
+                                if (isPreviewingThisMode) {
+                                    Button(
+                                        onClick = {
+                                            ProfileActivationHelper.restoreAfterPreview(context)
+                                            activePreviewModeId = null
+                                            Toast.makeText(context, "Ended preview for '${mode.name}'", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(42.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFEF4444),
+                                            contentColor = Color.White
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("End Preview", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                    }
+                                } else {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            // Apply mode automations live
+                                            ProfileActivationHelper.previewModeAutomations(
+                                                context = context,
+                                                contextName = contextName.ifBlank { contextItem.name },
+                                                mode = mode
+                                            )
+                                            activePreviewModeId = mode.id
+                                            Toast.makeText(context, "Previewing '${mode.name}' live", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(42.dp),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = theme.primary.copy(alpha = 0.12f),
+                                            contentColor = theme.primary
+                                        ),
+                                        border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.35f)),
+                                        contentPadding = PaddingValues(horizontal = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Preview", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                    }
+                                }
                             }
                         }
                     }
@@ -762,6 +985,9 @@ fun EditContextScreen(
                         Toast.makeText(context, "A context with this name already exists", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+
+                    // End preview before saving so settings are restored / persisted properly
+                    endActivePreviewIfRunning()
 
                     // Save modes strictly in chronological order
                     val orderedModes = sortModesChronologically(modes.toList())
@@ -802,6 +1028,7 @@ fun ModeConfigBullet(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -821,15 +1048,21 @@ fun ModeConfigBullet(
                 text = label,
                 fontSize = 12.sp,
                 fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isActive) theme.textPrimary else theme.textSecondary
+                color = if (isActive) theme.textPrimary else theme.textSecondary,
+                maxLines = 1
             )
         }
+
+        Spacer(modifier = Modifier.width(10.dp))
 
         Text(
             text = value,
             fontSize = 11.5.sp,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-            color = if (isActive) theme.primary else theme.textSecondary.copy(alpha = 0.7f)
+            color = if (isActive) theme.primary else theme.textSecondary.copy(alpha = 0.7f),
+            textAlign = TextAlign.End,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -845,6 +1078,21 @@ fun ConfigureModeDialog(
     val theme = LocalContextPulseTheme.current
     val context = LocalContext.current
 
+    val permRepo = remember { com.contextpulse.phase0.repository.PermissionsRepository.getInstance(context) }
+    val permState by permRepo.state.collectAsState()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permRepo.refreshPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    var isModeEnabled by remember { mutableStateOf(mode.isEnabled) }
     var modeName by remember { mutableStateOf(mode.name) }
     var activeDays by remember { mutableStateOf(mode.activeDays.toSet()) }
     var startTime by remember { mutableStateOf(mode.startTime) }
@@ -862,19 +1110,61 @@ fun ConfigureModeDialog(
     var appRestrictionsEnabled by remember { mutableStateOf(mode.appRestrictionsEnabled) }
     var restrictedApps by remember { mutableStateOf(mode.restrictedApps) }
 
-    var showAppPicker by remember { mutableStateOf(false) }
+    var autoLaunchAppEnabled by remember { mutableStateOf(mode.autoLaunchAppEnabled) }
+    var autoLaunchPackage by remember { mutableStateOf(mode.autoLaunchPackage) }
+    var autoLaunchAppName by remember { mutableStateOf(mode.autoLaunchAppName) }
 
-    if (showAppPicker) {
-        AppSelectorDialog(
+    var stickyNoteEnabled by remember { mutableStateOf(mode.stickyNoteEnabled) }
+    var stickyNoteText by remember { mutableStateOf(mode.stickyNoteText) }
+    var stickyNoteChecklist by remember { mutableStateOf(mode.stickyNoteChecklist) }
+    var newCheckItemText by remember { mutableStateOf("") }
+
+
+
+    var appBudgets by remember { mutableStateOf(mode.appBudgets) }
+    var blockedAppGroupIds by remember { mutableStateOf(mode.blockedAppGroupIds) }
+    var showRestrictedAppsDialog by remember { mutableStateOf(false) }
+    var showSingleAppPicker by remember { mutableStateOf(false) }
+
+    if (showRestrictedAppsDialog) {
+        val currentEntries = remember(restrictedApps, appBudgets) {
+            val res = mutableListOf<com.contextpulse.phase0.model.RestrictedAppEntry>()
+            val budgetedMap = appBudgets.associateBy { it.packageName }
+            restrictedApps.forEach { pkg ->
+                if (!budgetedMap.containsKey(pkg)) {
+                    res.add(com.contextpulse.phase0.model.RestrictedAppEntry(packageName = pkg, appName = com.contextpulse.phase0.ui.components.resolveAppDisplayName(context, pkg), maxMinutes = 0))
+                }
+            }
+            appBudgets.forEach { b ->
+                res.add(com.contextpulse.phase0.model.RestrictedAppEntry(packageName = b.packageName, appName = b.appName.ifBlank { com.contextpulse.phase0.ui.components.resolveAppDisplayName(context, b.packageName) }, maxMinutes = b.maxMinutes))
+            }
+            res
+        }
+
+        com.contextpulse.phase0.ui.components.RestrictedAppsManagerDialog(
             context = context,
-            initialSelected = restrictedApps,
-            onDismiss = { showAppPicker = false },
-            onConfirm = { updated ->
-                restrictedApps = updated
-                showAppPicker = false
+            initialRestrictedEntries = currentEntries,
+            initialBlockedGroupIds = blockedAppGroupIds,
+            onDismiss = { showRestrictedAppsDialog = false },
+            onConfirm = { updatedEntries, updatedGroupIds ->
+                val newBlocked = updatedEntries.filter { it.isOutrightBlock }.map { it.packageName }
+                val newBudgets = updatedEntries.filter { !it.isOutrightBlock }.map { entry ->
+                    AppUsageBudget(
+                        id = UUID.randomUUID().toString(),
+                        packageName = entry.packageName,
+                        appName = entry.appName,
+                        maxMinutes = entry.maxMinutes
+                    )
+                }
+                restrictedApps = newBlocked
+                appBudgets = newBudgets
+                blockedAppGroupIds = updatedGroupIds
+                showRestrictedAppsDialog = false
             }
         )
     }
+
+
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -926,7 +1216,7 @@ fun ConfigureModeDialog(
                                 color = theme.textPrimary
                             )
                             Text(
-                                text = if (isDefault) "Baseline actions when no other mode is active" else "Schedule and actions for this mode",
+                                text = if (isDefault) "Baseline actions when no other mode is active" else "Custom modes take priority over the Default mode",
                                 fontSize = 11.5.sp,
                                 color = theme.textSecondary
                             )
@@ -951,6 +1241,44 @@ fun ConfigureModeDialog(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     if (!isDefault) {
+                        // Section: Mode Status Toggle
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = theme.background),
+                            border = BorderStroke(1.dp, theme.border),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = if (isModeEnabled) "Mode Enabled (Active)" else "Mode Disabled",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (isModeEnabled) theme.primary else theme.textSecondary
+                                    )
+                                    Text(
+                                        text = if (isModeEnabled) "Evaluated automatically during scheduled hours" else "Temporarily paused without deleting",
+                                        fontSize = 11.5.sp,
+                                        color = theme.textSecondary
+                                    )
+                                }
+                                Switch(
+                                    checked = isModeEnabled,
+                                    onCheckedChange = { isModeEnabled = it },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = theme.onPrimary,
+                                        checkedTrackColor = theme.primary
+                                    )
+                                )
+                            }
+                        }
+
                         // Section: Schedule
                         Card(
                             shape = RoundedCornerShape(16.dp),
@@ -960,7 +1288,7 @@ fun ConfigureModeDialog(
                         ) {
                             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
-                                    text = "SCHEDULE & TIMING",
+                                    text = "SCHEDULE & TIMING (PRIORITY WINDOW)",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = theme.accent,
@@ -1079,7 +1407,83 @@ fun ConfigureModeDialog(
                                 letterSpacing = 1.sp
                             )
 
-                            // Action 1: DND
+                            // 1. Auto-Open App
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.RocketLaunch, contentDescription = null, tint = theme.primary, modifier = Modifier.size(18.dp))
+                                        Text("Auto-Open App", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                                    }
+                                    Switch(
+                                        checked = autoLaunchAppEnabled,
+                                        onCheckedChange = {
+                                            autoLaunchAppEnabled = it
+                                            if (it && autoLaunchPackage.isBlank()) {
+                                                showSingleAppPicker = true
+                                            }
+                                        }
+                                    )
+                                }
+
+                                if (autoLaunchAppEnabled) {
+                                    if (autoLaunchPackage.isNotBlank()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(theme.surfaceVariant)
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = autoLaunchAppName.ifBlank { autoLaunchPackage },
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = theme.textPrimary
+                                                )
+                                                Text(
+                                                    text = autoLaunchPackage,
+                                                    fontSize = 11.sp,
+                                                    color = theme.textSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                TextButton(onClick = { showSingleAppPicker = true }) {
+                                                    Text("Change", fontSize = 12.sp, color = theme.primary, fontWeight = FontWeight.Bold)
+                                                }
+                                                IconButton(onClick = {
+                                                    autoLaunchPackage = ""
+                                                    autoLaunchAppName = ""
+                                                }) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Clear", tint = theme.textSecondary, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        OutlinedButton(
+                                            onClick = { showSingleAppPicker = true },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Choose App to Auto-Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider(color = theme.border, thickness = 0.8.dp)
+
+                            // 2. Do Not Disturb
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1091,6 +1495,34 @@ fun ConfigureModeDialog(
                                         Text("Do Not Disturb", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
                                     }
                                     Switch(checked = dndEnabled, onCheckedChange = { dndEnabled = it })
+                                }
+
+                                if (dndEnabled && !permState.dndEnabled) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0x1AEF4444))
+                                            .border(1.dp, Color(0x44EF4444), RoundedCornerShape(10.dp))
+                                            .padding(10.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = "Notification Policy Access is required to automate DND. Without it, Do Not Disturb will remain disabled.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFFEF4444)
+                                            )
+                                            Button(
+                                                onClick = { permRepo.openDndSettings(context) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Text("Grant DND Permission", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+                                    }
                                 }
 
                                 if (dndEnabled) {
@@ -1121,36 +1553,7 @@ fun ConfigureModeDialog(
 
                             Divider(color = theme.border, thickness = 0.8.dp)
 
-                            // Action 2: Screen Brightness
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = theme.primary, modifier = Modifier.size(18.dp))
-                                        Text("Screen Brightness", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
-                                    }
-                                    Switch(checked = brightnessEnabled, onCheckedChange = { brightnessEnabled = it })
-                                }
-
-                                if (brightnessEnabled) {
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Target Brightness", fontSize = 12.sp, color = theme.textSecondary)
-                                        Text("$brightnessLevel%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.primary)
-                                    }
-                                    Slider(
-                                        value = brightnessLevel.toFloat(),
-                                        onValueChange = { brightnessLevel = it.toInt() },
-                                        valueRange = 1f..100f
-                                    )
-                                }
-                            }
-
-                            Divider(color = theme.border, thickness = 0.8.dp)
-
-                            // Action 3: Eye Comfort
+                            // 3. Eye Comfort
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1179,34 +1582,332 @@ fun ConfigureModeDialog(
 
                             Divider(color = theme.border, thickness = 0.8.dp)
 
-                            // Action 4: Blocked Apps
+                            // 4. Restricted Apps (Combines Outright Block & Daily Budget Allowance)
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
                                         Icon(Icons.Default.Apps, contentDescription = null, tint = theme.primary, modifier = Modifier.size(18.dp))
-                                        Text("Blocked Apps", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                                        Text("Restricted Apps", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
                                     }
                                     Switch(checked = appRestrictionsEnabled, onCheckedChange = { appRestrictionsEnabled = it })
                                 }
 
+                                if (appRestrictionsEnabled && !permState.usageStatsEnabled) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0x1AEF4444))
+                                            .border(1.dp, Color(0x44EF4444), RoundedCornerShape(10.dp))
+                                            .padding(10.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = "App Usage Access is required to detect and restrict foreground apps. Until granted, restricted apps will remain disabled.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFFEF4444)
+                                            )
+                                            Button(
+                                                onClick = { permRepo.openUsageAccessSettings(context) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Text("Grant Usage Access", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (appRestrictionsEnabled) {
-                                    val count = restrictedApps.size
+                                    val totalRestricted = (restrictedApps + appBudgets.map { it.packageName }).distinct().size
+                                    val blockedCount = restrictedApps.size
+                                    val budgetCount = appBudgets.size
+
+                                    // Apps list preview card if any restricted
+                                    if (totalRestricted > 0) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            // Budgeted apps list
+                                            appBudgets.forEach { budget ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(theme.surfaceVariant)
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = budget.appName.ifBlank { budget.packageName },
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = theme.textPrimary
+                                                        )
+                                                        Text(
+                                                            text = "⏳ Daily Budget: ${budget.maxMinutes} min • Dynamic Floating Timer",
+                                                            fontSize = 11.sp,
+                                                            color = Color(0xFFF59E0B),
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            appBudgets = appBudgets.filterNot { it.id == budget.id }
+                                                        },
+                                                        modifier = Modifier.size(30.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Remove", tint = theme.textSecondary, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+
+                                            // Outright blocked apps preview summary
+                                            if (blockedCount > 0) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(theme.surfaceVariant)
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Text("🚫", fontSize = 12.sp)
+                                                        Text(
+                                                            text = "$blockedCount app${if (blockedCount == 1) "" else "s"} outright blocked",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = Color(0xFFEF4444)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     OutlinedButton(
-                                        onClick = { showAppPicker = true },
+                                        onClick = { showRestrictedAppsDialog = true },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
-                                        Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = if (count == 0) "Select Apps & Groups to Block" else "Manage Blocked Apps ($count)",
+                                            text = if (totalRestricted == 0) "Configure Restricted Apps" else "Manage Restricted Apps ($totalRestricted)",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
+                                    }
+                                }
+                            }
+
+                            Divider(color = theme.border, thickness = 0.8.dp)
+
+                            // 5. Screen Brightness
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.BrightnessMedium, contentDescription = null, tint = theme.primary, modifier = Modifier.size(18.dp))
+                                        Text("Screen Brightness", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                                    }
+                                    Switch(checked = brightnessEnabled, onCheckedChange = { brightnessEnabled = it })
+                                }
+
+                                if (brightnessEnabled && !permState.writeSettingsEnabled) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0x1AEF4444))
+                                            .border(1.dp, Color(0x44EF4444), RoundedCornerShape(10.dp))
+                                            .padding(10.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                text = "Modify System Settings permission is needed to automate screen brightness. Until granted, brightness automation will remain disabled.",
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFFEF4444)
+                                            )
+                                            Button(
+                                                onClick = { permRepo.openWriteSettings(context) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Text("Grant Settings Permission", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (brightnessEnabled) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Target Brightness", fontSize = 12.sp, color = theme.textSecondary)
+                                        Text("$brightnessLevel%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.primary)
+                                    }
+                                    Slider(
+                                        value = brightnessLevel.toFloat(),
+                                        onValueChange = { brightnessLevel = it.toInt() },
+                                        valueRange = 1f..100f
+                                    )
+                                }
+                            }
+
+                            Divider(color = theme.border, thickness = 0.8.dp)
+
+                            // 6. Sticky Note
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.StickyNote2, contentDescription = null, tint = theme.primary, modifier = Modifier.size(18.dp))
+                                        Text("Sticky Note", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                                    }
+                                    Switch(
+                                        checked = stickyNoteEnabled,
+                                        onCheckedChange = { stickyNoteEnabled = it }
+                                    )
+                                }
+
+                                if (stickyNoteEnabled) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text(
+                                            text = "Presents an upfront pop-up reminder upon entering this context. If checklist tasks are configured, you must check all boxes before dismissing the pop-up.",
+                                            fontSize = 11.5.sp,
+                                            color = theme.textSecondary,
+                                            lineHeight = 16.sp
+                                        )
+
+                                        // Freeform Note input
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(
+                                                text = "Note Content / Text (Optional)",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = theme.textPrimary
+                                            )
+
+                                            OutlinedTextField(
+                                                value = stickyNoteText,
+                                                onValueChange = { stickyNoteText = it },
+                                                placeholder = { Text("e.g., Remember to hydrate, stretch, review context notes...") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                minLines = 3,
+                                                maxLines = 8,
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                        }
+
+                                        // Checklist section
+                                        Text(
+                                            text = "Checklist Tasks (Must check all to dismiss):",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = theme.textPrimary
+                                        )
+
+                                        // Add item row
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = newCheckItemText,
+                                                onValueChange = { newCheckItemText = it },
+                                                placeholder = { Text("Add checklist task...") },
+                                                modifier = Modifier.weight(1f),
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(10.dp)
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val clean = newCheckItemText.trim()
+                                                    if (clean.isNotBlank()) {
+                                                        stickyNoteChecklist = stickyNoteChecklist + StickyNoteCheckItem(text = clean)
+                                                        newCheckItemText = ""
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(theme.primary.copy(alpha = 0.16f))
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = "Add Item", tint = theme.primary)
+                                            }
+                                        }
+
+                                        // Existing items
+                                        if (stickyNoteChecklist.isNotEmpty()) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(theme.surfaceVariant)
+                                                    .border(1.dp, theme.border, RoundedCornerShape(10.dp))
+                                                    .padding(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                stickyNoteChecklist.forEachIndexed { index, item ->
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                            modifier = Modifier.weight(1f)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.CheckBoxOutlineBlank,
+                                                                contentDescription = null,
+                                                                tint = theme.textSecondary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Text(
+                                                                text = item.text,
+                                                                fontSize = 12.5.sp,
+                                                                color = theme.textPrimary
+                                                            )
+                                                        }
+                                                        IconButton(
+                                                            onClick = {
+                                                                stickyNoteChecklist = stickyNoteChecklist.filterIndexed { i, _ -> i != index }
+                                                            },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.Close,
+                                                                contentDescription = "Remove Item",
+                                                                tint = theme.textSecondary,
+                                                                modifier = Modifier.size(15.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1224,19 +1925,36 @@ fun ConfigureModeDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
+                            val startParts = startTime.split(":")
+                            val sHour = if (isDefault) 0 else (startParts.getOrNull(0)?.toIntOrNull() ?: 9)
+                            val sMinute = if (isDefault) 0 else (startParts.getOrNull(1)?.toIntOrNull() ?: 0)
+                            val endParts = endTime.split(":")
+                            val eHour = if (isDefault) 23 else (endParts.getOrNull(0)?.toIntOrNull() ?: 17)
+                            val eMinute = if (isDefault) 59 else (endParts.getOrNull(1)?.toIntOrNull() ?: 0)
+
                             val updated = mode.copy(
                                 name = if (isDefault) "Default" else modeName.trim().ifEmpty { mode.name },
-                                activeDays = if (isDefault) listOf(1, 2, 3, 4, 5, 6, 7) else activeDays.sorted(),
-                                startTime = if (isDefault) "00:00" else startTime.trim().ifEmpty { "09:00" },
-                                endTime = if (isDefault) "23:59" else endTime.trim().ifEmpty { "17:00" },
+                                isEnabled = if (isDefault) true else isModeEnabled,
+                                daysOfWeek = if (isDefault) setOf(1, 2, 3, 4, 5, 6, 7) else activeDays,
+                                startHour = sHour,
+                                startMinute = sMinute,
+                                endHour = eHour,
+                                endMinute = eMinute,
                                 dndEnabled = dndEnabled,
                                 dndMode = dndMode,
                                 brightnessEnabled = brightnessEnabled,
-                                brightnessLevel = brightnessLevel,
+                                brightnessPercent = brightnessLevel,
                                 eyeComfortEnabled = eyeComfortEnabled,
-                                eyeComfortLevel = eyeComfortLevel,
+                                eyeComfortIntensity = eyeComfortLevel,
                                 appRestrictionsEnabled = appRestrictionsEnabled,
-                                restrictedApps = restrictedApps
+                                blockedApps = restrictedApps,
+                                autoLaunchAppEnabled = autoLaunchAppEnabled,
+                                autoLaunchPackage = if (autoLaunchAppEnabled) autoLaunchPackage else "",
+                                autoLaunchAppName = if (autoLaunchAppEnabled) autoLaunchAppName else "",
+                                stickyNoteEnabled = stickyNoteEnabled,
+                                stickyNoteText = if (stickyNoteEnabled) stickyNoteText else "",
+                                stickyNoteChecklist = if (stickyNoteEnabled) stickyNoteChecklist else emptyList(),
+                                appBudgets = appBudgets
                             )
                             onSave(updated)
                         },

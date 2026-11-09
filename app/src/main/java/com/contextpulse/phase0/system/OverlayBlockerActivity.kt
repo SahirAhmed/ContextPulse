@@ -33,15 +33,28 @@ class OverlayBlockerActivity : ComponentActivity() {
     companion object {
         const val EXTRA_BLOCKED_PKG = "EXTRA_BLOCKED_PKG"
         const val EXTRA_ACTIVE_ROOM_NAME = "EXTRA_ACTIVE_ROOM_NAME"
+        const val EXTRA_BLOCK_REASON = "EXTRA_BLOCK_REASON"
+        const val REASON_BLOCK_LIST = "BLOCK_LIST"
+        const val REASON_BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val blockedPkg = intent.getStringExtra(EXTRA_BLOCKED_PKG) ?: "Restricted Application"
+        if (blockedPkg.substringBefore('/').trim().equals(packageName, ignoreCase = true)) {
+            finish()
+            return
+        }
         val roomRepo = RoomProfileRepository.getInstance(this)
-        val roomName = intent.getStringExtra(EXTRA_ACTIVE_ROOM_NAME)
+        val rawRoomName = intent.getStringExtra(EXTRA_ACTIVE_ROOM_NAME)
             ?: roomRepo.activeRoom.value?.name
-            ?: "Active Room"
+            ?: "Active Profile"
+        val roomName = rawRoomName.replace(Regex("\\s*\\(Budget Exhausted\\)", RegexOption.IGNORE_CASE), "").trim()
+
+        val explicitReason = intent.getStringExtra(EXTRA_BLOCK_REASON)
+        val isBudgetExhausted = explicitReason == REASON_BUDGET_EXHAUSTED ||
+            (explicitReason == null && AppUsageBudgetManager.getActiveBudgetForPackage(blockedPkg) != null &&
+             AppUsageBudgetManager.getRemainingSecondsForPackage(this, blockedPkg) <= 0)
 
         // Resolve friendly app label
         val appLabel = try {
@@ -95,7 +108,7 @@ class OverlayBlockerActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(18.dp))
 
                         Text(
-                            text = "App Access Blocked",
+                            text = if (isBudgetExhausted) "Usage Budget Exhausted" else "App Access Blocked",
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 22.sp,
@@ -110,7 +123,7 @@ class OverlayBlockerActivity : ComponentActivity() {
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "Active Profile: '$roomName'",
+                                text = if (isBudgetExhausted) "Active Profile: '$roomName' • Daily Budget Exhausted" else "Active Profile: '$roomName' • App Blocked",
                                 color = Color(0xFFFF6482),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -151,7 +164,11 @@ class OverlayBlockerActivity : ComponentActivity() {
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "$roomName has blocked access to this app. Please change location or change profiles in the ContextPulse app.",
+                            text = if (isBudgetExhausted) {
+                                "Your daily usage budget for $appLabel has run out for '$roomName'. Access is restricted until the context changes or resets."
+                            } else {
+                                "$appLabel is on the blocked apps list for '$roomName'. Access is restricted during this mode."
+                            },
                             color = Color(0xFFE2E8F0),
                             fontSize = 14.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -161,7 +178,7 @@ class OverlayBlockerActivity : ComponentActivity() {
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Only action allowed: Exit to Home Screen (strict lock)
+                        // Single primary action: Exit to Home Screen
                         Button(
                             onClick = { kickToHome() },
                             colors = ButtonDefaults.buttonColors(
@@ -171,11 +188,11 @@ class OverlayBlockerActivity : ComponentActivity() {
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .height(50.dp)
                         ) {
                             Icon(Icons.Default.Home, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Exit to Home Screen", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                            Text("Exit to Home Screen", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
                     }
                 }

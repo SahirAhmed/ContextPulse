@@ -12,23 +12,26 @@ enum class TriggerType {
     NFC_TAG,
     QR_CODE;
 
+    val label: String
+        get() = getDisplayName()
+
     fun getDisplayName(): String = when (this) {
-        UNCONFIGURED -> "Needs Configuration"
-        BLE_BEACON -> "BLE Proximity Beacon"
-        NFC_TAG -> "NFC Chip Tag"
-        QR_CODE -> "Room QR Code"
+        UNCONFIGURED -> "Needs Setup"
+        BLE_BEACON -> "BLE Beacon"
+        NFC_TAG -> "NFC Tag"
+        QR_CODE -> "QR Code"
     }
 }
 
 typealias SensorType = TriggerType
 
 /**
- * Live broadcast health status for sensors/triggers.
+ * Live broadcast health status for triggers.
  */
 enum class BroadcastStatus {
-    BROADCASTING,  // Active and broadcasting properly (Green)
-    LOW_BATTERY,   // Battery <= 20% (Amber)
-    OFFLINE;       // Hardware stopped broadcasting or signal lost (Red)
+    BROADCASTING,
+    LOW_BATTERY,
+    OFFLINE;
 
     fun getDisplayName(): String = when (this) {
         BROADCASTING -> "Broadcasting"
@@ -38,27 +41,43 @@ enum class BroadcastStatus {
 }
 
 /**
- * Trigger item representation supporting BLE beacons, NFC chips, and QR codes.
+ * Unified model for a registered Trigger (BLE Beacon, NFC Tag, or QR Code).
  */
-data class TriggerItem(
+data class RegisteredBeacon(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
     val type: TriggerType = TriggerType.BLE_BEACON,
     val isConfigured: Boolean = true,
-    val code: String = "", // e.g. "CP-A1F4" or hardware UID
-    val assignedRoomName: String? = null, // e.g. "Living Room", "Home Office", or null for Unassigned
-    val batteryPercent: Int = 100, // 0..100 %
-    val rssi: Int = -50, // in dBm
+    val code: String = "",
     val macAddress: String = "",
-    val nfcTagUid: String = "",
+    val namespaceOrUuid: String = "",
+    val instanceOrMajorMinor: String = "",
+    val nfcTagId: String = "",
     val qrPayload: String = "",
+    val assignedRoomId: String = "",
+    val assignedRoomName: String = "",
+    val enterRssiThreshold: Int = -70,
+    val exitRssiThreshold: Int = -85,
+    val batteryPercent: Int? = 100,
+    val rssi: Int = -50,
+    val lastSeenMillis: Long? = System.currentTimeMillis(),
+    val isReachable: Boolean = true,
     val isOffline: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
+    val nfcTagUid: String get() = nfcTagId
+
+    fun isLowBattery(): Boolean {
+        return type == TriggerType.BLE_BEACON && batteryPercent != null && batteryPercent in 1..20
+    }
+
+    fun hasFaultAlert(): Boolean {
+        return isLowBattery() || !isReachable || isOffline
+    }
+
     fun getBroadcastStatus(): BroadcastStatus {
-        if (!isConfigured) return BroadcastStatus.OFFLINE
-        if (isOffline) return BroadcastStatus.OFFLINE
-        if (type == TriggerType.BLE_BEACON && batteryPercent in 1..20) return BroadcastStatus.LOW_BATTERY
+        if (!isConfigured || isOffline || !isReachable) return BroadcastStatus.OFFLINE
+        if (isLowBattery()) return BroadcastStatus.LOW_BATTERY
         return BroadcastStatus.BROADCASTING
     }
 
@@ -69,47 +88,51 @@ data class TriggerItem(
             put("type", type.name)
             put("isConfigured", isConfigured)
             put("code", code)
-            assignedRoomName?.let { put("assignedRoomName", it) }
-            put("batteryPercent", batteryPercent)
-            put("rssi", rssi)
             put("macAddress", macAddress)
-            put("nfcTagUid", nfcTagUid)
+            put("namespaceOrUuid", namespaceOrUuid)
+            put("instanceOrMajorMinor", instanceOrMajorMinor)
+            put("nfcTagId", nfcTagId)
             put("qrPayload", qrPayload)
+            put("assignedRoomId", assignedRoomId)
+            put("assignedRoomName", assignedRoomName)
+            put("enterRssiThreshold", enterRssiThreshold)
+            put("exitRssiThreshold", exitRssiThreshold)
+            if (batteryPercent != null) put("batteryPercent", batteryPercent)
+            put("rssi", rssi)
+            if (lastSeenMillis != null) put("lastSeenMillis", lastSeenMillis)
+            put("isReachable", isReachable)
             put("isOffline", isOffline)
             put("createdAt", createdAt)
         }
     }
 
     companion object {
-        fun fromJsonObject(obj: JSONObject): TriggerItem {
-            val typeStr = obj.optString("type", "")
-            val resolvedType = when {
-                typeStr.equals("BLE_BEACON", ignoreCase = true) -> TriggerType.BLE_BEACON
-                typeStr.equals("NFC_TAG", ignoreCase = true) -> TriggerType.NFC_TAG
-                typeStr.equals("QR_CODE", ignoreCase = true) -> TriggerType.QR_CODE
-                typeStr.equals("UNCONFIGURED", ignoreCase = true) -> TriggerType.UNCONFIGURED
-                obj.has("macAddress") || obj.has("code") -> TriggerType.BLE_BEACON
-                else -> TriggerType.UNCONFIGURED
+        fun fromJsonObject(obj: JSONObject): RegisteredBeacon {
+            val typeStr = obj.optString("type", "BLE_BEACON")
+            val resolvedType = try {
+                TriggerType.valueOf(typeStr)
+            } catch (_: Exception) {
+                TriggerType.BLE_BEACON
             }
-
-            val isConfigured = if (obj.has("isConfigured")) {
-                obj.optBoolean("isConfigured", true)
-            } else {
-                resolvedType != TriggerType.UNCONFIGURED
-            }
-
-            return TriggerItem(
+            return RegisteredBeacon(
                 id = obj.optString("id", UUID.randomUUID().toString()),
                 name = obj.optString("name", "Trigger"),
                 type = resolvedType,
-                isConfigured = isConfigured,
-                code = obj.optString("code", "CP-${UUID.randomUUID().toString().take(4).uppercase()}"),
-                assignedRoomName = if (obj.has("assignedRoomName") && !obj.isNull("assignedRoomName")) obj.getString("assignedRoomName") else null,
-                batteryPercent = obj.optInt("batteryPercent", 100),
-                rssi = obj.optInt("rssi", -50),
+                isConfigured = obj.optBoolean("isConfigured", true),
+                code = obj.optString("code", ""),
                 macAddress = obj.optString("macAddress", ""),
-                nfcTagUid = obj.optString("nfcTagUid", ""),
+                namespaceOrUuid = obj.optString("namespaceOrUuid", ""),
+                instanceOrMajorMinor = obj.optString("instanceOrMajorMinor", ""),
+                nfcTagId = obj.optString("nfcTagId", obj.optString("nfcTagUid", "")),
                 qrPayload = obj.optString("qrPayload", ""),
+                assignedRoomId = obj.optString("assignedRoomId", ""),
+                assignedRoomName = obj.optString("assignedRoomName", ""),
+                enterRssiThreshold = obj.optInt("enterRssiThreshold", -70),
+                exitRssiThreshold = obj.optInt("exitRssiThreshold", -85),
+                batteryPercent = if (obj.has("batteryPercent") && !obj.isNull("batteryPercent")) obj.getInt("batteryPercent") else 100,
+                rssi = obj.optInt("rssi", -50),
+                lastSeenMillis = if (obj.has("lastSeenMillis") && !obj.isNull("lastSeenMillis")) obj.getLong("lastSeenMillis") else null,
+                isReachable = obj.optBoolean("isReachable", true),
                 isOffline = obj.optBoolean("isOffline", false),
                 createdAt = obj.optLong("createdAt", System.currentTimeMillis())
             )
@@ -117,15 +140,10 @@ data class TriggerItem(
     }
 }
 
-/**
- * Typealiases preserving full backward compatibility.
- */
-typealias SensorItem = TriggerItem
-typealias BeaconItem = TriggerItem
+typealias TriggerItem = RegisteredBeacon
+typealias SensorItem = RegisteredBeacon
+typealias BeaconItem = RegisteredBeacon
 
-/**
- * Proximity / Context activity event for the Home screen feed.
- */
 data class RecentActivityItem(
     val id: String = UUID.randomUUID().toString(),
     val title: String,

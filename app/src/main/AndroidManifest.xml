@@ -16,10 +16,14 @@
     <uses-permission android:name="android.permission.NFC" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
+    <!-- Camera Permission for In-App QR Code Scanner -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <!-- Foreground Service & Execution Reliability -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -30,6 +34,8 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
     <!-- Hardware requirements (set to required="false" for seamless emulator testing) -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
@@ -68,6 +74,15 @@
                 <action android:name="android.app.action.AUTOMATIC_ZEN_RULE" />
             </intent-filter>
 
+            <!-- Android App Links with autoVerify for https://sahirahmed.github.io -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="sahirahmed.github.io" />
+                <data android:scheme="http" android:host="sahirahmed.github.io" />
+            </intent-filter>
+
             <!-- Deep Link Intent Filters for Room QR Code triggers -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -79,9 +94,26 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="contextpulse.app" android:pathPrefix="/trigger" />
+                <data android:scheme="https" android:host="sahir01ahmed.github.io" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="contextpulse.app" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.contextpulse.phase0.ui.StickyNoteOverlayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ContextPulse.TranslucentOverlay"
+            android:taskAffinity="com.contextpulse.phase0.overlay"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
 
         <activity-alias
             android:name="com.contextpulse.phase0.ui.LauncherAliasYellow"
@@ -195,6 +227,48 @@
             </intent-filter>
         </activity-alias>
 
+        <activity-alias
+            android:name="com.contextpulse.phase0.ui.LauncherAliasWhiteEmerald"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_white_emerald"
+            android:roundIcon="@mipmap/ic_launcher_white_emerald_round"
+            android:label="@string/app_name"
+            android:targetActivity="com.contextpulse.phase0.ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.contextpulse.phase0.ui.LauncherAliasWhitePurple"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_white_purple"
+            android:roundIcon="@mipmap/ic_launcher_white_purple_round"
+            android:label="@string/app_name"
+            android:targetActivity="com.contextpulse.phase0.ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.contextpulse.phase0.ui.LauncherAliasWhiteCrimson"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_white_crimson"
+            android:roundIcon="@mipmap/ic_launcher_white_crimson_round"
+            android:label="@string/app_name"
+            android:targetActivity="com.contextpulse.phase0.ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- App restriction overlay blocker activity -->
         <activity
             android:name="com.contextpulse.phase0.system.OverlayBlockerActivity"
@@ -207,7 +281,20 @@
             android:name="com.contextpulse.phase0.ble.Phase0BleService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|dataSync" />
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- Receiver for Scheduled Mode Timeframe Alarms -->
+        <receiver
+            android:name="com.contextpulse.phase0.system.ScheduleBoundaryReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Dynamic Floating Timer Overlay Service for Sleep & App Usage Limits -->
+        <service
+            android:name="com.contextpulse.phase0.system.FloatingTimerOverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Optional Accessibility Service for comparative investigation of Test 5 & 6 -->
         <service
@@ -222,7 +309,7 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
-        <!-- Boot Receiver for Auto-Start on phone restart -->
+        <!-- Boot Receiver for Auto-Start on phone restart & app update -->
         <receiver
             android:name="com.contextpulse.phase0.system.BootReceiver"
             android:enabled="true"
@@ -231,6 +318,30 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Receiver for Clock, Timezone, and Date Changes -->
+        <receiver
+            android:name="com.contextpulse.phase0.system.TimeChangeReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIME_CHANGED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Receiver for Snooze Expiration Alarm -->
+        <receiver
+            android:name="com.contextpulse.phase0.system.SnoozeAlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.contextpulse.phase0.system.ACTION_SNOOZE_EXPIRED" />
             </intent-filter>
         </receiver>
 

@@ -271,7 +271,7 @@ class BaselineStateEngineTest {
         val originalMosqueProfile = mosque.profile
 
         // Edit Mosque profile while Bedroom is active
-        val newMosqueProfile = originalMosqueProfile.copy(brightnessLevel = 10, dndMode = "Total Silence")
+        val newMosqueProfile = originalMosqueProfile.copy(brightnessPercent = 10, dndMode = "Total Silence")
         repository.updateRoomProfile(mosque.id, newMosqueProfile)
 
         // Verify Bedroom active profile and simulated state are completely unaffected

@@ -18,10 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.BatterySaver
 import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.Icon
@@ -55,6 +58,15 @@ fun SettingsScreen(
 ) {
     val theme = LocalContextPulseTheme.current
     var currentSubScreen by remember { mutableStateOf(SettingsSubScreen.MAIN) }
+    var showTestAppDialog by remember { mutableStateOf(false) }
+
+    if (showTestAppDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        com.contextpulse.phase0.ui.components.TestAppSuiteDialog(
+            context = context,
+            onDismiss = { showTestAppDialog = false }
+        )
+    }
 
     // Intercept back button when inside a sub-page to smoothly return to the main Settings menu
     BackHandler(enabled = currentSubScreen != SettingsSubScreen.MAIN) {
@@ -87,6 +99,7 @@ fun SettingsScreen(
                 SettingsMainMenu(
                     currentTheme = currentTheme,
                     onNavigateTo = { currentSubScreen = it },
+                    onOpenTestApp = { showTestAppDialog = true },
                     onBack = onBack
                 )
             }
@@ -97,8 +110,8 @@ fun SettingsScreen(
                     onBack = { currentSubScreen = SettingsSubScreen.MAIN }
                 )
             }
-            SettingsSubScreen.WIDGET_CONFIG -> {
-                WidgetConfigSubScreen(
+            SettingsSubScreen.NOTIFICATIONS -> {
+                NotificationsSubScreen(
                     onBack = { currentSubScreen = SettingsSubScreen.MAIN }
                 )
             }
@@ -109,6 +122,11 @@ fun SettingsScreen(
             }
             SettingsSubScreen.SECURITY_LOCK -> {
                 SecurityLockSubScreen(
+                    onBack = { currentSubScreen = SettingsSubScreen.MAIN }
+                )
+            }
+            SettingsSubScreen.BACKGROUND_RELIABILITY -> {
+                BackgroundReliabilitySubScreen(
                     onBack = { currentSubScreen = SettingsSubScreen.MAIN }
                 )
             }
@@ -139,6 +157,7 @@ fun SettingsScreen(
 private fun SettingsMainMenu(
     currentTheme: AppThemeKey,
     onNavigateTo: (SettingsSubScreen) -> Unit,
+    onOpenTestApp: () -> Unit,
     onBack: () -> Unit
 ) {
     val theme = LocalContextPulseTheme.current
@@ -159,7 +178,7 @@ private fun SettingsMainMenu(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .padding(top = 12.dp, bottom = 4.dp),
+                    .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -209,15 +228,15 @@ private fun SettingsMainMenu(
             )
         }
 
-        // Setting Item 2: Widget Setup
+        // Setting Item 2: Notifications
         item {
             SettingsNavigationRow(
-                icon = Icons.Outlined.Widgets,
+                icon = Icons.Outlined.Notifications,
                 iconTint = theme.primary,
                 iconBg = theme.primary.copy(alpha = 0.15f),
-                title = "Widget Setup",
-                subtitle = "Configure up to 3 quick-switch profiles for your home screen",
-                onClick = { onNavigateTo(SettingsSubScreen.WIDGET_CONFIG) }
+                title = "Notifications",
+                subtitle = "Manage context change transitions & low beacon battery alerts",
+                onClick = { onNavigateTo(SettingsSubScreen.NOTIFICATIONS) }
             )
         }
 
@@ -245,7 +264,31 @@ private fun SettingsMainMenu(
             )
         }
 
-        // Setting Item 4: Reset Application (Danger Zone)
+        // Setting Item 5: Background Reliability & OEM Guide
+        item {
+            SettingsNavigationRow(
+                icon = Icons.Outlined.BatterySaver,
+                iconTint = theme.primary,
+                iconBg = theme.primary.copy(alpha = 0.15f),
+                title = "Background Reliability & OEM Guide",
+                subtitle = "Xiaomi HyperOS autostart, battery saver exemption & persistent execution",
+                onClick = { onNavigateTo(SettingsSubScreen.BACKGROUND_RELIABILITY) }
+            )
+        }
+
+        // Setting Item 6: Test App (System Diagnostics)
+        item {
+            SettingsNavigationRow(
+                icon = Icons.Outlined.CheckCircle,
+                iconTint = theme.accent,
+                iconBg = theme.accent.copy(alpha = 0.15f),
+                title = "Test App",
+                subtitle = "Automated dry-run diagnostics for features, restrictions & permissions",
+                onClick = onOpenTestApp
+            )
+        }
+
+        // Setting Item 6: Reset Application (Danger Zone)
         item {
             SettingsNavigationRow(
                 icon = Icons.Outlined.DeleteOutline,
@@ -258,7 +301,7 @@ private fun SettingsMainMenu(
             )
         }
 
-        // Setting Item 5: About ContextPulse
+        // Setting Item 7: About ContextPulse
         item {
             SettingsNavigationRow(
                 icon = Icons.Outlined.Info,

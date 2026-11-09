@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -37,6 +39,8 @@ import com.contextpulse.phase0.model.ContextItem
 import com.contextpulse.phase0.model.TriggerItem
 import com.contextpulse.phase0.model.TriggerType
 import com.contextpulse.phase0.repository.BeaconRepository
+import com.contextpulse.phase0.repository.ContextTemplate
+import com.contextpulse.phase0.repository.ContextTemplateRepository
 import com.contextpulse.phase0.repository.RoomProfileRepository
 import com.contextpulse.phase0.security.AppLockManager
 import com.contextpulse.phase0.ui.components.AppLockDialog
@@ -45,7 +49,9 @@ import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
 
 val CONTEXT_ICONS = listOf(
     Pair("meeting_room", Icons.Default.MeetingRoom),
+    Pair("business", Icons.Default.Business),
     Pair("laptop", Icons.Default.Laptop),
+    Pair("school", Icons.Default.School),
     Pair("bed", Icons.Default.Bed),
     Pair("weekend", Icons.Default.Weekend),
     Pair("fitness", Icons.Default.FitnessCenter),
@@ -54,6 +60,7 @@ val CONTEXT_ICONS = listOf(
 )
 
 fun getContextIcon(iconKey: String): ImageVector {
+    if (iconKey == "fitness_center") return Icons.Default.FitnessCenter
     return CONTEXT_ICONS.find { it.first == iconKey }?.second ?: Icons.Default.MeetingRoom
 }
 
@@ -83,8 +90,13 @@ fun ContextsScreen(
 
     var showAddDialog by remember { mutableStateOf(false) }
     var newContextName by remember { mutableStateOf("") }
-    var newContextSubtitle by remember { mutableStateOf("") }
     var selectedIconKey by remember { mutableStateOf("meeting_room") }
+    var selectedTemplate by remember { mutableStateOf<ContextTemplate?>(null) }
+    var templateTab by remember { mutableStateOf(0) } // 0: Templates, 1: Blank
+
+    var contextToSaveAsTemplate by remember { mutableStateOf<ContextItem?>(null) }
+    var templateSaveName by remember { mutableStateOf("") }
+    var templateSaveDesc by remember { mutableStateOf("") }
 
     var contextPendingDelete by remember { mutableStateOf<ContextItem?>(null) }
     var attachingContext by remember { mutableStateOf<ContextItem?>(null) }
@@ -115,8 +127,106 @@ fun ContextsScreen(
         )
     }
 
+    // Save as Template Dialog
+    if (contextToSaveAsTemplate != null) {
+        val targetContext = contextToSaveAsTemplate!!
+        Dialog(onDismissRequest = { contextToSaveAsTemplate = null }) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = theme.surface,
+                border = BorderStroke(1.dp, theme.border),
+                shadowElevation = 16.dp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.BookmarkAdd, contentDescription = null, tint = theme.primary)
+                        }
+                        Column {
+                            Text(
+                                text = "Save as Template",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.textPrimary
+                            )
+                            Text(
+                                text = "Reuse this space layout for new contexts",
+                                fontSize = 12.sp,
+                                color = theme.textSecondary
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = templateSaveName,
+                        onValueChange = { templateSaveName = it },
+                        label = { Text("Template Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = templateSaveDesc,
+                        onValueChange = { templateSaveDesc = it },
+                        label = { Text("Description") },
+                        placeholder = { Text("e.g. Focused workspace with DND & app limits") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { contextToSaveAsTemplate = null }) {
+                            Text("Cancel", color = theme.textSecondary)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                ContextTemplateRepository.saveCustomTemplate(
+                                    context = context,
+                                    name = templateSaveName.trim().ifBlank { targetContext.name },
+                                    description = templateSaveDesc.trim().ifBlank { "Custom space template" },
+                                    iconKey = targetContext.iconName,
+                                    profile = targetContext.profile
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "Saved '${templateSaveName.ifBlank { targetContext.name }}' as reusable template!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                contextToSaveAsTemplate = null
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                        ) {
+                            Text("Save Template", fontWeight = FontWeight.Bold, color = theme.onPrimary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Add Context Dialog
     if (showAddDialog) {
+        val allTemplates = remember(showAddDialog) { ContextTemplateRepository.getAllTemplates(context) }
         val isDuplicate = remember(newContextName) {
             newContextName.isNotBlank() && (
                 roomRepo.isDuplicateName(newContextName) ||
@@ -130,12 +240,16 @@ fun ContextsScreen(
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "New Context Space",
@@ -144,17 +258,143 @@ fun ContextsScreen(
                         color = theme.textPrimary
                     )
 
-                    Text(
-                        text = "Enter a unique name for this context environment:",
-                        fontSize = 13.sp,
-                        color = theme.textSecondary
-                    )
+                    // Tab selector: Template vs Blank
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(theme.surfaceVariant)
+                            .padding(3.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (templateTab == 0) theme.primary else Color.Transparent)
+                                .clickable {
+                                    templateTab = 0
+                                    if (selectedTemplate == null) {
+                                        selectedTemplate = allTemplates.firstOrNull()
+                                    }
+                                    selectedTemplate?.let {
+                                        newContextName = it.name
+                                        selectedIconKey = it.iconKey
+                                    }
+                                }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "From Template",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (templateTab == 0) theme.onPrimary else theme.textSecondary
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (templateTab == 1) theme.primary else Color.Transparent)
+                                .clickable {
+                                    templateTab = 1
+                                    selectedTemplate = null
+                                    newContextName = ""
+                                    selectedIconKey = "meeting_room"
+                                }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Blank Context",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (templateTab == 1) theme.onPrimary else theme.textSecondary
+                            )
+                        }
+                    }
+
+                    if (templateTab == 0) {
+                        Text(
+                            text = "Choose a starting point with pre-configured modes and settings:",
+                            fontSize = 12.sp,
+                            color = theme.textSecondary,
+                            modifier = Modifier.align(Alignment.Start)
+                        )
+
+                        // Template selection row
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp)
+                        ) {
+                            items(allTemplates) { t ->
+                                val isSel = selectedTemplate?.id == t.id
+                                Box(
+                                    modifier = Modifier
+                                        .width(135.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSel) theme.primary.copy(alpha = 0.12f) else theme.background)
+                                        .border(
+                                            width = if (isSel) 1.8.dp else 1.dp,
+                                            color = if (isSel) theme.primary else theme.border,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            selectedTemplate = t
+                                            newContextName = t.name
+                                            selectedIconKey = t.iconKey
+                                        }
+                                        .padding(10.dp)
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = getContextIcon(t.iconKey),
+                                                contentDescription = null,
+                                                tint = if (isSel) theme.primary else theme.textSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            if (!t.isSystemTemplate) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(theme.primary.copy(alpha = 0.15f))
+                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                ) {
+                                                    Text("CUSTOM", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = theme.primary)
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = t.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSel) theme.primary else theme.textPrimary
+                                        )
+                                        Text(
+                                            text = t.description,
+                                            fontSize = 10.5.sp,
+                                            color = theme.textSecondary,
+                                            maxLines = 2,
+                                            lineHeight = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     OutlinedTextField(
                         value = newContextName,
                         onValueChange = { newContextName = it },
                         label = { Text("Context Name") },
-                        placeholder = { Text("e.g. Home Office, Master Bedroom") },
+                        placeholder = { Text("e.g. Work, Gym, Home Office") },
                         singleLine = true,
                         isError = isDuplicate,
                         supportingText = {
@@ -166,25 +406,16 @@ fun ContextsScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
 
-                    OutlinedTextField(
-                        value = newContextSubtitle,
-                        onValueChange = { newContextSubtitle = it },
-                        label = { Text("Subtitle / Description (Optional)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
                     // Icon selection
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        CONTEXT_ICONS.forEach { (key, icon) ->
+                        CONTEXT_ICONS.take(7).forEach { (key, icon) ->
                             val isSel = selectedIconKey == key
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(if (isSel) theme.primary else theme.background)
                                     .border(1.dp, if (isSel) theme.primary else theme.border, CircleShape)
@@ -195,7 +426,7 @@ fun ContextsScreen(
                                     imageVector = icon,
                                     contentDescription = null,
                                     tint = if (isSel) theme.onPrimary else theme.textSecondary,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -213,11 +444,20 @@ fun ContextsScreen(
                             onClick = {
                                 if (newContextName.isNotBlank() && !isDuplicate) {
                                     val name = newContextName.trim()
-                                    val sub = newContextSubtitle.trim()
                                     showAddDialog = false
+                                    if (templateTab == 0 && selectedTemplate != null) {
+                                        roomRepo.createRoomWithProfile(
+                                            name = name,
+                                            subtitle = "",
+                                            iconName = selectedIconKey,
+                                            profile = selectedTemplate!!.profile
+                                        )
+                                        Toast.makeText(context, "Created '$name' from ${selectedTemplate!!.name} template", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        onAddContext(name, "", selectedIconKey)
+                                        Toast.makeText(context, "Created '$name' space", Toast.LENGTH_SHORT).show()
+                                    }
                                     newContextName = ""
-                                    newContextSubtitle = ""
-                                    onAddContext(name, sub, selectedIconKey)
                                 }
                             },
                             enabled = newContextName.isNotBlank() && !isDuplicate,
@@ -391,8 +631,11 @@ fun ContextsScreen(
                 Button(
                     onClick = {
                         runWithLockProtection {
-                            newContextName = ""
-                            newContextSubtitle = ""
+                            val allTemplates = ContextTemplateRepository.getAllTemplates(context)
+                            selectedTemplate = allTemplates.firstOrNull()
+                            newContextName = selectedTemplate?.name ?: ""
+                            selectedIconKey = selectedTemplate?.iconKey ?: "meeting_room"
+                            templateTab = 0
                             showAddDialog = true
                         }
                     },
@@ -523,16 +766,20 @@ fun ContextsScreen(
                                     )
                                 }
 
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
                                             text = contextItem.name,
                                             fontSize = 17.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = theme.textPrimary
+                                            color = theme.textPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
 
                                         if (isActive) {
@@ -546,18 +793,12 @@ fun ContextsScreen(
                                                     text = "ACTIVE",
                                                     fontSize = 9.5.sp,
                                                     fontWeight = FontWeight.ExtraBold,
-                                                    color = theme.onPrimary
+                                                    color = theme.onPrimary,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
-                                    }
-
-                                    if (contextItem.subtitle.isNotBlank()) {
-                                        Text(
-                                            text = contextItem.subtitle,
-                                            fontSize = 12.sp,
-                                            color = theme.textSecondary
-                                        )
                                     }
                                 }
                             }
@@ -599,6 +840,22 @@ fun ContextsScreen(
                                         contentDescription = "Move Down",
                                         tint = if (itemIndex < contexts.size - 1) theme.primary else theme.border,
                                         modifier = Modifier.size(17.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        templateSaveName = contextItem.name
+                                        templateSaveDesc = "${contextItem.profile.modes.size} modes configured"
+                                        contextToSaveAsTemplate = contextItem
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BookmarkAdd,
+                                        contentDescription = "Save as Template",
+                                        tint = theme.primary,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
 
@@ -648,17 +905,29 @@ fun ContextsScreen(
                                 }
 
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    // 1. Auto-Open App
+                                    if (activeMode.autoLaunchAppEnabled && activeMode.autoLaunchPackage.isNotBlank()) {
+                                        Icon(Icons.Default.RocketLaunch, contentDescription = "Auto-Open App", tint = theme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                    // 2. Do Not Disturb
                                     if (activeMode.dndEnabled) {
                                         Icon(Icons.Default.DoNotDisturb, contentDescription = "DND", tint = theme.primary, modifier = Modifier.size(16.dp))
                                     }
+                                    // 3. Eye Comfort
+                                    if (activeMode.eyeComfortEnabled) {
+                                        Icon(Icons.Default.NightlightRound, contentDescription = "Eye Comfort", tint = theme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                    // 4. Restricted Apps (Outright Blocked or Budgeted)
+                                    if (activeMode.appRestrictionsEnabled && activeMode.totalRestrictedCount > 0) {
+                                        Icon(Icons.Default.Apps, contentDescription = "Restricted Apps", tint = theme.primary, modifier = Modifier.size(16.dp))
+                                    }
+                                    // 5. Screen Brightness
                                     if (activeMode.brightnessEnabled) {
                                         Icon(Icons.Default.BrightnessMedium, contentDescription = "Brightness", tint = theme.primary, modifier = Modifier.size(16.dp))
                                     }
-                                    if (activeMode.appRestrictionsEnabled) {
-                                        Icon(Icons.Default.Apps, contentDescription = "Apps", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    if (activeMode.eyeComfortEnabled) {
-                                        Icon(Icons.Default.NightlightRound, contentDescription = "Eye Comfort", tint = theme.primary, modifier = Modifier.size(16.dp))
+                                    // 6. Sticky Note
+                                    if (activeMode.stickyNoteEnabled && (activeMode.stickyNoteText.isNotBlank() || activeMode.stickyNoteChecklist.isNotEmpty())) {
+                                        Icon(Icons.Default.StickyNote2, contentDescription = "Sticky Note", tint = theme.primary, modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }

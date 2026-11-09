@@ -18,6 +18,9 @@ import android.provider.Settings
 import android.service.notification.Condition
 import android.service.notification.ZenPolicy
 import android.util.Log
+import android.app.PendingIntent
+import androidx.core.app.NotificationCompat
+import com.contextpulse.phase0.Phase0Application
 import com.contextpulse.phase0.model.SystemStateSnapshot
 import com.contextpulse.phase0.model.ZenRuleOpResult
 import com.contextpulse.phase0.ui.MainActivity
@@ -31,8 +34,22 @@ object SystemControllers {
     // TEST 5: Detecting Foreground Application
     // ==========================================
 
+    // Cached system services and permission status for high-efficiency polling
+    private var cachedUsageStatsManager: UsageStatsManager? = null
+    private var cachedActivityManager: android.app.ActivityManager? = null
+    private var cachedAppOpsManager: AppOpsManager? = null
+    private var lastPermissionCheckTime = 0L
+    private var cachedHasUsageStats = false
+
     fun hasUsageStatsPermission(context: Context): Boolean {
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+        val now = System.currentTimeMillis()
+        if (now - lastPermissionCheckTime < 2500L) {
+            return cachedHasUsageStats
+        }
+        val appOps = cachedAppOpsManager ?: (context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager).also {
+            cachedAppOpsManager = it
+        } ?: return false
+
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             appOps.unsafeCheckOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
@@ -47,7 +64,10 @@ object SystemControllers {
                 context.packageName
             )
         }
-        return mode == AppOpsManager.MODE_ALLOWED
+        val granted = mode == AppOpsManager.MODE_ALLOWED
+        cachedHasUsageStats = granted
+        lastPermissionCheckTime = now
+        return granted
     }
 
     fun openUsageAccessSettings(context: Context): Boolean {
@@ -64,7 +84,7 @@ object SystemControllers {
     }
 
     /**
-     * Queries the foreground app via UsageStatsManager.
+     * Queries the foreground app via UsageStatsManager with caching and tight windowing.
      * Returns a pair of: (packageName, eventLatencyMillis)
      */
     fun getForegroundAppWithLatency(context: Context): Pair<String?, Long> {
@@ -74,10 +94,13 @@ object SystemControllers {
 
         // Method 1: UsageStats queryEvents & queryUsageStats
         if (hasUsageStatsPermission(context)) {
-            val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val usageStatsManager = cachedUsageStatsManager ?: (context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager).also {
+                cachedUsageStatsManager = it
+            }
             if (usageStatsManager != null) {
                 try {
-                    val startTime = endTime - 10_000L
+                    // Optimized 1.8s window for rapid foreground detection
+                    val startTime = endTime - 1_800L
                     val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
                     val event = UsageEvents.Event()
 
@@ -92,7 +115,7 @@ object SystemControllers {
                     }
 
                     if (lastForegroundApp == null) {
-                        val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, endTime - 30_000L, endTime)
+                        val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, endTime - 10_000L, endTime)
                         lastForegroundApp = stats?.maxByOrNull { it.lastTimeUsed }?.packageName
                     }
                 } catch (e: Exception) {
@@ -101,16 +124,18 @@ object SystemControllers {
             }
         }
 
-        // Method 2: Running App Processes (works on many devices and emulators)
+        // Method 2: Running App Processes (fallback)
         if (lastForegroundApp == null) {
             try {
-                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                val am = cachedActivityManager ?: (context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager).also {
+                    cachedActivityManager = it
+                }
                 val processes = am?.runningAppProcesses
                 val fg = processes?.find {
                     it.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND &&
-                    it.pkgList != null && it.pkgList.isNotEmpty()
+                    !it.pkgList.isNullOrEmpty()
                 }
-                if (fg != null && fg.pkgList.isNotEmpty()) {
+                if (fg != null && !fg.pkgList.isNullOrEmpty()) {
                     lastForegroundApp = fg.pkgList[0]
                 }
             } catch (e: Exception) {
@@ -146,13 +171,58 @@ object SystemControllers {
         }
     }
 
-    fun showRestrictionOverlay(context: Context, blockedPackage: String, activeRoomName: String? = null) {
+    fun showRestrictionOverlay(
+        context: Context,
+        blockedPackage: String,
+        activeRoomName: String? = null,
+        blockReason: String? = null
+    ) {
+        val normTarget = blockedPackage.substringBefore('/').trim().lowercase()
+        val normSelf = context.packageName.lowercase()
+        if (normTarget == normSelf) {
+            Log.w(TAG, "Prevented restriction overlay from targeting ContextPulse itself: $blockedPackage")
+            return
+        }
+
         val intent = Intent(context, OverlayBlockerActivity::class.java).apply {
             putExtra(OverlayBlockerActivity.EXTRA_BLOCKED_PKG, blockedPackage)
             activeRoomName?.let { putExtra(OverlayBlockerActivity.EXTRA_ACTIVE_ROOM_NAME, it) }
+            blockReason?.let { putExtra(OverlayBlockerActivity.EXTRA_BLOCK_REASON, it) }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        context.startActivity(intent)
+
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Direct startActivity for restriction overlay failed", e)
+        }
+
+        // Full-screen notification guarantee: on Android 10+ background execution,
+        // if ContextPulse is not currently open, posting a high-priority Full-Screen Intent
+        // causes the OS to immediately surface the blocker overlay over the restricted third-party app.
+        try {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (nm != null) {
+                val pendingIntent = PendingIntent.getActivity(
+                    context,
+                    blockedPackage.hashCode(),
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                val notif = NotificationCompat.Builder(context, Phase0Application.CHANNEL_ALERTS)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setContentTitle("App Access Blocked")
+                    .setContentText("Restricted during active context")
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setFullScreenIntent(pendingIntent, true)
+                    .setAutoCancel(true)
+                    .build()
+                nm.notify(1099, notif)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Full-screen notification launch fallback failed", e)
+        }
     }
 
     fun kickToHomeScreen(context: Context) {

@@ -31,14 +31,17 @@ import com.contextpulse.phase0.repository.PermissionsRepository
 import com.contextpulse.phase0.repository.RoomProfileRepository
 import com.contextpulse.phase0.security.AppLockManager
 import com.contextpulse.phase0.system.AppRestrictionMonitor
+import com.contextpulse.phase0.system.AppUsageBudgetManager
 import com.contextpulse.phase0.system.BaselineStateManager
 import com.contextpulse.phase0.system.ContextEngine
 import com.contextpulse.phase0.system.SnoozeManager
 import com.contextpulse.phase0.system.SystemControllers
+import com.contextpulse.phase0.model.ContextTimeframeMode
 import com.contextpulse.phase0.ui.components.ContextPulseBottomBar
 import com.contextpulse.phase0.ui.components.ContextPulseTab
 import com.contextpulse.phase0.ui.components.ContextPulseTopBar
 import com.contextpulse.phase0.ui.components.SnoozeDialog
+import com.contextpulse.phase0.ui.StickyNoteOverlayActivity
 import com.contextpulse.phase0.ui.components.TourGuideOverlay
 import com.contextpulse.phase0.ui.screens.ActivityHistoryScreen
 import com.contextpulse.phase0.ui.screens.ConfigureTriggerScreen
@@ -57,10 +60,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         try {
+            com.contextpulse.phase0.system.ActiveConfigSnapshotManager.checkAndRecoverInterruptedPreview(this)
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "Error checking interrupted preview", e)
+        }
+        try {
             com.contextpulse.phase0.ble.Phase0BleService.start(this)
         } catch (e: Throwable) {
             android.util.Log.e("MainActivity", "Failed to start Phase0BleService from onCreate", e)
         }
+        com.contextpulse.phase0.ui.components.prewarmInstalledApps(this)
         handleTriggerDeepLink(intent)
 
         setContent {
@@ -124,59 +133,29 @@ class MainActivity : ComponentActivity() {
         val path = data.path ?: ""
 
         val rawKey = when {
+            // Query param: e.g. https://sahirahmed.github.io/ContextPulse/?trigger=xyz or https://sahirahmed.github.io/?trigger=xyz
+            !data.getQueryParameter("trigger").isNullOrBlank() -> {
+                data.getQueryParameter("trigger")
+            }
+            !data.getQueryParameter("context").isNullOrBlank() -> {
+                data.getQueryParameter("context")
+            }
             scheme == "contextpulse" && host == "trigger" -> {
                 data.lastPathSegment ?: path.removePrefix("/")
             }
-            (scheme == "https" || scheme == "http") && (host == "contextpulse.app" || host.contains("contextpulse")) && path.startsWith("/trigger") -> {
-                data.lastPathSegment
+            scheme == "contextpulse" -> {
+                data.getQueryParameter("trigger") ?: data.lastPathSegment ?: path.removePrefix("/")
             }
-            else -> data.lastPathSegment
+            (scheme == "https" || scheme == "http") && (host.contains("sahirahmed.github.io") || host.contains("sahir01ahmed.github.io")) -> {
+                data.getQueryParameter("trigger") ?: data.getQueryParameter("context") ?: data.lastPathSegment
+            }
+            (scheme == "https" || scheme == "http") && path.contains("trigger") -> {
+                data.getQueryParameter("trigger") ?: data.lastPathSegment
+            }
+            else -> data.getQueryParameter("trigger") ?: data.lastPathSegment
         } ?: return
 
-        val triggerId = rawKey.trim()
-        val beaconRepo = com.contextpulse.phase0.repository.BeaconRepository.getInstance(applicationContext)
-        val roomRepo = com.contextpulse.phase0.repository.RoomProfileRepository.getInstance(applicationContext)
-
-        val trigger = beaconRepo.beacons.value.find {
-            it.id.equals(triggerId, ignoreCase = true) ||
-            it.qrPayload.equals(data.toString(), ignoreCase = true) ||
-            it.qrPayload.endsWith("/$triggerId", ignoreCase = true) ||
-            it.name.equals(triggerId, ignoreCase = true)
-        }
-
-        if (trigger != null) {
-            val assignedRoomName = trigger.assignedRoomName
-            if (!assignedRoomName.isNullOrBlank()) {
-                val targetRoom = roomRepo.rooms.value.find { it.name.equals(assignedRoomName.trim(), ignoreCase = true) }
-                if (targetRoom != null) {
-                    com.contextpulse.phase0.system.ProfileActivationHelper.activateProfile(
-                        context = this,
-                        roomId = targetRoom.id,
-                        triggerSource = com.contextpulse.phase0.model.TriggerSource.QR_CODE,
-                        reason = "Room QR Code scanned: ${trigger.name}"
-                    )
-                    Toast.makeText(this, "Room QR Code Scanned: Activated '${targetRoom.name}'", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this, "Assigned context '$assignedRoomName' not found.", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, "Scanned Trigger '${trigger.name}', but it is not assigned to a context yet.", Toast.LENGTH_LONG).show()
-            }
-        } else {
-            // Check if triggerId matches a context name or ID directly
-            val directRoom = roomRepo.rooms.value.find { it.name.equals(triggerId, ignoreCase = true) || it.id == triggerId }
-            if (directRoom != null) {
-                com.contextpulse.phase0.system.ProfileActivationHelper.activateProfile(
-                    context = this,
-                    roomId = directRoom.id,
-                    triggerSource = com.contextpulse.phase0.model.TriggerSource.QR_CODE,
-                    reason = "Room QR Code scanned directly"
-                )
-                Toast.makeText(this, "Room QR Code Scanned: Activated '${directRoom.name}'", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "QR Code trigger ($triggerId) not recognized.", Toast.LENGTH_SHORT).show()
-            }
-        }
+        com.contextpulse.phase0.util.QrTriggerHandler.processQrPayload(this, rawKey)
     }
 }
 
@@ -214,6 +193,24 @@ fun ContextPulseMainScreen(
     val contextEngine = remember { ContextEngine.getInstance(context) }
     val lockManager = remember { AppLockManager.getInstance(context) }
     val snoozeManager = remember { SnoozeManager.getInstance(context) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+    // Automatically refresh all permissions whenever returning from Android Settings
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                permissionsRepository.refreshPermissions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val isLockActive by lockManager.isLockEnabled.collectAsState()
+    val isAppAccessUnlocked by lockManager.isAppAccessUnlockedFlow.collectAsState()
+    var showSnoozeLockDialog by remember { mutableStateOf(false) }
 
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Tab(ContextPulseTab.HOME)) }
 
@@ -223,6 +220,7 @@ fun ContextPulseMainScreen(
 
     // Snooze dialog state & live ticking seconds countdown
     var showSnoozeDialog by remember { mutableStateOf(false) }
+    var showQrScannerDialog by remember { mutableStateOf(false) }
     val snoozeEndTime by snoozeManager.snoozeEndTime.collectAsState()
     var currentRemainingSeconds by remember { mutableStateOf(snoozeManager.getRemainingSeconds()) }
     LaunchedEffect(snoozeEndTime) {
@@ -244,61 +242,12 @@ fun ContextPulseMainScreen(
     val activationLogs by activationLogRepository.activationLogs.collectAsState()
     val permissionsState by permissionsRepository.state.collectAsState()
 
-    // Real execution of Context Profile Automations with Timeframe Scheduling: Brightness, DND, Eye Comfort, and Apps Blocked
+    var isInitialAppLaunch by remember { mutableStateOf(true) }
+    var previousActiveRoomId by remember { mutableStateOf<String?>(activeRoomId) }
+
+    // Background engine (Phase0BleService) authoritatively coordinates and applies automations.
+    // UI only ensures home screen widgets remain synchronized.
     LaunchedEffect(activeRoom, isSnoozed) {
-        val currentActive = activeRoom
-
-        if (isSnoozed) {
-            // During active snooze: suspend all automations & restrictions
-            SystemControllers.restoreBrightness(context)
-            SystemControllers.restoreDnd(context)
-            SystemControllers.applyEyeComfort(context, false)
-            AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
-            AppRestrictionMonitor.stopContinuousMonitoring()
-        } else if (currentActive != null) {
-            val activeMode = currentActive.profile.resolveActiveMode()
-
-            // 1. Brightness Automation
-            if (activeMode.brightnessEnabled) {
-                SystemControllers.applyBrightness(context, activeMode.brightnessLevel)
-            } else {
-                SystemControllers.restoreBrightness(context)
-            }
-
-            // 2. Do Not Disturb (DND) Automation
-            if (activeMode.dndEnabled) {
-                SystemControllers.applyDndMode(context, activeMode.dndMode)
-            } else {
-                SystemControllers.restoreDnd(context)
-            }
-
-            // 3. Eye Comfort / Night Light Automation
-            if (activeMode.eyeComfortEnabled) {
-                SystemControllers.applyEyeComfort(context, true, activeMode.eyeComfortLevel)
-            } else {
-                SystemControllers.applyEyeComfort(context, false)
-            }
-
-            // 4. Apps Blocked Automation
-            if (activeMode.appRestrictionsEnabled && activeMode.restrictedApps.isNotEmpty()) {
-                AppRestrictionMonitor.setRestrictedPackages(
-                    packages = activeMode.restrictedApps.toSet(),
-                    roomName = currentActive.name
-                )
-                AppRestrictionMonitor.startContinuousMonitoring(context, 800L)
-            } else {
-                AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
-                AppRestrictionMonitor.stopContinuousMonitoring()
-            }
-        } else {
-            SystemControllers.restoreBrightness(context)
-            SystemControllers.restoreDnd(context)
-            SystemControllers.applyEyeComfort(context, false)
-            AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
-            AppRestrictionMonitor.stopContinuousMonitoring()
-        }
-
-        // Keep Home Screen Widgets synchronized with active room state
         try {
             com.contextpulse.phase0.widget.ContextPulseWidgetProvider.updateAllWidgets(context)
         } catch (e: Throwable) {
@@ -328,39 +277,26 @@ fun ContextPulseMainScreen(
         }
     }
 
-    // Virtual Tour Guide Overlay
-    if (showTourGuide) {
-        TourGuideOverlay(
-            onDismiss = {
-                tourPrefs.edit().putBoolean("tour_completed", true).apply()
-                showTourGuide = false
-            }
-        )
-    }
-
-    // Temporary Snooze / Pause Dialog with live countdown
-    if (showSnoozeDialog) {
-        SnoozeDialog(
-            isActive = isSnoozed,
-            remainingMinutes = (currentRemainingSeconds / 60 + 1).toInt(),
-            remainingTimeText = remainingSnoozeDetailed,
-            onStartSnooze = { mins -> snoozeManager.startSnooze(mins) },
-            onCancelSnooze = { snoozeManager.cancelSnooze() },
-            onDismiss = { showSnoozeDialog = false }
-        )
-    }
-
-    // Main column layout: TopBar -> Content (weight 1f) -> BottomBar
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(currentTheme.background)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Main column layout: TopBar -> Content (weight 1f) -> BottomBar
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(currentTheme.background)
+        ) {
         // Consistent Brand Top Bar across all 4 tab screens with ZZZ sleep button
         if (currentScreen is AppScreen.Tab) {
             ContextPulseTopBar(
+                onHomeClick = { currentScreen = AppScreen.Tab(ContextPulseTab.HOME) },
                 onSettingsClick = { currentScreen = AppScreen.Settings },
-                onSnoozeClick = { showSnoozeDialog = true },
+                onSnoozeClick = {
+                    if (lockManager.isLockedForAction()) {
+                        showSnoozeLockDialog = true
+                    } else {
+                        showSnoozeDialog = true
+                    }
+                },
+                onScanQrClick = { showQrScannerDialog = true },
                 isSnoozed = isSnoozed,
                 snoozeRemainingMinutes = (currentRemainingSeconds / 60 + 1).toInt(),
                 snoozeRemainingText = remainingSnoozeClock
@@ -393,15 +329,68 @@ fun ContextPulseMainScreen(
                     is AppScreen.Tab -> {
                         when (screen.tab) {
                             ContextPulseTab.HOME -> {
+                                val systemDnd = remember {
+                                    (context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager).currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                                }
+                                val systemBrightness = remember {
+                                    try {
+                                        val cur = android.provider.Settings.System.getInt(context.contentResolver, android.provider.Settings.System.SCREEN_BRIGHTNESS)
+                                        (cur * 100 / 255)
+                                    } catch (_: Exception) { 50 }
+                                }
                                 HomeScreen(
                                     activeRoom = activeRoom,
-                                    profileCount = rooms.size,
-                                    beacons = beacons,
-                                    activationLogs = activationLogs,
-                                    onActiveProfileClick = { currentScreen = AppScreen.Tab(ContextPulseTab.CONTEXTS) },
-                                    onBeaconsCardClick = { currentScreen = AppScreen.Tab(ContextPulseTab.TRIGGERS) },
-                                    onProfilesCardClick = { currentScreen = AppScreen.Tab(ContextPulseTab.CONTEXTS) },
-                                    onViewMoreClick = { currentScreen = AppScreen.ActivityHistory }
+                                    allRooms = rooms,
+                                    triggersCount = beacons.size,
+                                    isSnoozed = isSnoozed,
+                                    snoozeRemainingSeconds = currentRemainingSeconds,
+                                    systemDndActive = systemDnd,
+                                    systemBrightnessPercent = systemBrightness,
+                                    recentLogs = activationLogs,
+                                    onActivateRoom = { room ->
+                                        com.contextpulse.phase0.system.ProfileActivationHelper.activateProfile(
+                                            context = context,
+                                            roomId = room.id,
+                                            triggerSource = TriggerSource.MANUAL,
+                                            reason = "Switched via Quick Switch"
+                                        )
+                                    },
+                                    onDeactivateActiveRoom = {
+                                        val activeId = activeRoom?.id
+                                        if (activeId != null) {
+                                            com.contextpulse.phase0.system.ProfileActivationHelper.toggleOrActivateFromTrigger(
+                                                context = context,
+                                                roomId = activeId,
+                                                triggerSource = TriggerSource.MANUAL,
+                                                triggerName = "Home Deactivate"
+                                            )
+                                        }
+                                    },
+                                    onEditActiveRoom = { room ->
+                                        currentScreen = AppScreen.EditContext(room.id)
+                                    },
+                                    onStartSnooze = { minutes ->
+                                        snoozeManager.startSnooze(minutes)
+                                    },
+                                    onCancelSnooze = {
+                                        snoozeManager.cancelSnooze()
+                                    },
+                                    onViewAllLogs = { currentScreen = AppScreen.ActivityHistory },
+                                    onStartTour = { showTourGuide = true },
+                                    onNavigateToContexts = { currentScreen = AppScreen.Tab(ContextPulseTab.CONTEXTS) },
+                                    onNavigateToTriggers = { currentScreen = AppScreen.Tab(ContextPulseTab.TRIGGERS) },
+                                    onOpenStickyNote = {
+                                        if (activeRoom != null) {
+                                            val m = activeRoom!!.profile.resolveActiveMode()
+                                            StickyNoteOverlayActivity.show(
+                                                context = context,
+                                                contextName = activeRoom!!.name,
+                                                modeName = m.name,
+                                                noteText = m.stickyNoteText,
+                                                checklist = m.stickyNoteChecklist
+                                            )
+                                        }
+                                    }
                                 )
                             }
 
@@ -414,23 +403,19 @@ fun ContextPulseMainScreen(
                                     beaconRepo = beaconRepository,
                                     lockManager = lockManager,
                                     onSelectContext = { contextItem ->
-                                        val previousName = activeRoom?.name
                                         if (activeRoomId == contextItem.id) {
-                                            contextEngine.deactivateRoom()
-                                            activationLogRepository.logActivation(
-                                                toProfileName = "Baseline (Default)",
-                                                fromProfileName = contextItem.name,
-                                                reason = "The context was manually deactivated by user",
-                                                triggerSource = TriggerSource.MANUAL
+                                            com.contextpulse.phase0.system.ProfileActivationHelper.toggleOrActivateFromTrigger(
+                                                context = context,
+                                                roomId = contextItem.id,
+                                                triggerSource = TriggerSource.MANUAL,
+                                                triggerName = "Manual Switch"
                                             )
-                                            Toast.makeText(context, "Deactivated ${contextItem.name}", Toast.LENGTH_SHORT).show()
                                         } else {
-                                            contextEngine.activateRoom(contextItem.id)
-                                            activationLogRepository.logActivation(
-                                                toProfileName = contextItem.name,
-                                                fromProfileName = previousName ?: "Baseline",
-                                                reason = "The context was manually changed by user in Contexts screen",
-                                                triggerSource = TriggerSource.MANUAL
+                                            com.contextpulse.phase0.system.ProfileActivationHelper.activateProfile(
+                                                context = context,
+                                                roomId = contextItem.id,
+                                                triggerSource = TriggerSource.MANUAL,
+                                                reason = "The context was manually changed by user in Contexts screen"
                                             )
                                             Toast.makeText(context, "Switched context to ${contextItem.name}", Toast.LENGTH_SHORT).show()
                                         }
@@ -473,10 +458,10 @@ fun ContextPulseMainScreen(
                                     contexts = rooms,
                                     beaconRepo = beaconRepository,
                                     lockManager = lockManager,
-                                    onAddTriggerWithName = { name ->
-                                        val created = beaconRepository.addUnconfiguredTrigger(name)
+                                    onAddTriggerWithName = { name, type ->
+                                        val created = beaconRepository.addUnconfiguredTrigger(name, type)
                                         currentScreen = AppScreen.ConfigureTrigger(created.id)
-                                        Toast.makeText(context, "Created $name. Please configure hardware.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Created $name (${type.getDisplayName()}). Please configure hardware.", Toast.LENGTH_SHORT).show()
                                     },
                                     onOpenConfigureTrigger = { triggerId ->
                                         currentScreen = AppScreen.ConfigureTrigger(triggerId)
@@ -533,10 +518,7 @@ fun ContextPulseMainScreen(
                         if (targetTrigger != null) {
                             ConfigureTriggerScreen(
                                 trigger = targetTrigger,
-                                beaconRepo = beaconRepository,
-                                onSaveTrigger = { updated ->
-                                    beaconRepository.saveTrigger(updated)
-                                },
+                                onSaved = { currentScreen = AppScreen.Tab(ContextPulseTab.TRIGGERS) },
                                 onBack = { currentScreen = AppScreen.Tab(ContextPulseTab.TRIGGERS) }
                             )
                         } else {
@@ -573,7 +555,8 @@ fun ContextPulseMainScreen(
 
                     AppScreen.ActivityHistory -> {
                         ActivityHistoryScreen(
-                            activationLogs = activationLogs,
+                            logs = activationLogs,
+                            onClearLogs = { activationLogRepository.clearLogs() },
                             onBack = { currentScreen = AppScreen.Tab(ContextPulseTab.HOME) }
                         )
                     }
@@ -596,16 +579,18 @@ fun ContextPulseMainScreen(
                                 beaconRepository.wipeAllBeacons()
                                 com.contextpulse.phase0.repository.AppGroupRepository.getInstance(context).clearAll()
                                 activationLogRepository.clearLogs()
-                                permissionsRepository.revokeAllPermissions(context)
+                                permissionsRepository.revokeAllPermissions()
                                 snoozeManager.cancelSnooze()
                                 lockManager.disableLock()
+                                tourPrefs.edit().putBoolean("tour_completed", false).apply()
+                                showTourGuide = true
                                 onSelectTheme(com.contextpulse.phase0.ui.theme.AppThemeKey.CANARY_YELLOW)
                                 try {
                                     com.contextpulse.phase0.widget.ContextPulseWidgetProvider.updateAllWidgets(context)
                                 } catch (e: Throwable) {
                                     // Ignored
                                 }
-                                Toast.makeText(context, "All contexts & triggers wiped, logs cleared, app reset", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Configurations reset. Starting interactive tour...", Toast.LENGTH_LONG).show()
                                 currentScreen = AppScreen.Tab(ContextPulseTab.HOME)
                             }
                         )
@@ -622,4 +607,84 @@ fun ContextPulseMainScreen(
             )
         }
     }
+
+    // Virtual Tour Guide Overlay (Rendered above Column)
+    if (showTourGuide) {
+        TourGuideOverlay(
+            onDismiss = {
+                tourPrefs.edit().putBoolean("tour_completed", true).apply()
+                showTourGuide = false
+                currentScreen = AppScreen.Tab(ContextPulseTab.HOME)
+            },
+            onNavigateStep = { targetTab, isSettings ->
+                currentScreen = if (isSettings) {
+                    AppScreen.Settings
+                } else if (targetTab != null) {
+                    AppScreen.Tab(targetTab)
+                } else {
+                    AppScreen.Tab(ContextPulseTab.HOME)
+                }
+            },
+            onFinishTour = {
+                currentScreen = AppScreen.Tab(ContextPulseTab.HOME)
+            }
+        )
+    }
+
+    // App Entrance Security Lock: If lock is enabled and app access is not unlocked, show fullscreen lock
+    if (isLockActive && !isAppAccessUnlocked) {
+        com.contextpulse.phase0.ui.components.AppLockDialog(
+            lockManager = lockManager,
+            title = "ContextPulse Locked",
+            subtitle = "Enter 6-digit PIN or scan fingerprint to access",
+            isAppEntrance = true,
+            onSuccess = {
+                lockManager.markAppAccessUnlocked()
+            },
+            onDismiss = {
+                // For app entrance, dismissing does not grant access
+            }
+        )
+    }
+
+    // Snooze Lock Verification Dialog
+    if (showSnoozeLockDialog) {
+        com.contextpulse.phase0.ui.components.AppLockDialog(
+            lockManager = lockManager,
+            title = "Security Verification",
+            subtitle = "Enter PIN or scan fingerprint to pause automations",
+            isAppEntrance = false,
+            onSuccess = {
+                showSnoozeLockDialog = false
+                showSnoozeDialog = true
+            },
+            onDismiss = {
+                showSnoozeLockDialog = false
+            }
+        )
+    }
+
+    // Temporary Snooze / Pause Dialog with live countdown
+    if (showSnoozeDialog) {
+        SnoozeDialog(
+            isActive = isSnoozed,
+            remainingMinutes = (currentRemainingSeconds / 60 + 1).toInt(),
+            remainingTimeText = remainingSnoozeDetailed,
+            onStartSnooze = { mins -> snoozeManager.startSnooze(mins) },
+            onCancelSnooze = { snoozeManager.cancelSnooze() },
+            onDismiss = { showSnoozeDialog = false }
+        )
+    }
+
+    // In-App QR Code Scanner Dialog
+    if (showQrScannerDialog) {
+        com.contextpulse.phase0.ui.components.QrScannerDialog(
+            onDismiss = { showQrScannerDialog = false },
+            onQrScanned = { payload ->
+                showQrScannerDialog = false
+                com.contextpulse.phase0.util.QrTriggerHandler.processQrPayload(context, payload)
+            }
+        )
+    }
+}
 }

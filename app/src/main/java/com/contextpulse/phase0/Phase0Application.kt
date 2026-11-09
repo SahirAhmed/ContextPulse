@@ -37,6 +37,16 @@ class Phase0Application : Application() {
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to auto-start Phase0BleService on app launch", e)
         }
+        try {
+            com.contextpulse.phase0.ui.components.prewarmInstalledApps(this)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to prewarm installed apps", e)
+        }
+        try {
+            com.contextpulse.phase0.system.ProfileActivationHelper.reapplyCurrentActive(this)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Failed to reapply active profile on app launch", e)
+        }
     }
 
     private fun createNotificationChannels() {

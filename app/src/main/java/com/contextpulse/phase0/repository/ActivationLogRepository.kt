@@ -10,106 +10,194 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 
 /**
- * Persistent repository storing profile activation and transition logs with detailed reasoning.
+ * Persists a history of context activations and deactivations (up to 100 entries)
+ * and dispatches device notifications when Context Switch Notifications are enabled.
  */
-class ActivationLogRepository(private val context: Context) {
+class ActivationLogRepository(context: Context) {
 
-    companion object {
-        private const val PREFS_NAME = "contextpulse_activation_logs_v1"
-        private const val KEY_LOGS_JSON = "key_logs_json"
+    private val appContext = context.applicationContext
+    private val prefs: SharedPreferences =
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        @Volatile
-        private var INSTANCE: ActivationLogRepository? = null
-
-        fun getInstance(context: Context): ActivationLogRepository {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: ActivationLogRepository(context.applicationContext).also { INSTANCE = it }
-            }
-        }
-    }
-
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    private val _activationLogs = MutableStateFlow<List<ProfileActivationLog>>(emptyList())
-    val activationLogs: StateFlow<List<ProfileActivationLog>> = _activationLogs.asStateFlow()
+    private val _logs = MutableStateFlow<List<ProfileActivationLog>>(emptyList())
+    val logs: StateFlow<List<ProfileActivationLog>> = _logs.asStateFlow()
+    val recentLogs: StateFlow<List<ProfileActivationLog>> get() = logs
+    val activationLogs: StateFlow<List<ProfileActivationLog>> get() = logs
 
     init {
         loadLogs()
     }
 
-    @Synchronized
-    fun loadLogs() {
-        val wasCleared = prefs.getBoolean("key_logs_cleared", false)
-        val json = prefs.getString(KEY_LOGS_JSON, null)
-        if (wasCleared || json == "[]") {
-            _activationLogs.value = emptyList()
+    private fun loadLogs() {
+        val raw = prefs.getString(KEY_LOGS_JSON, null)
+        if (raw.isNullOrBlank()) {
+            _logs.value = emptyList()
             return
         }
 
-        val sevenDaysAgo = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
-        val list = if (json.isNullOrEmpty()) {
-            saveLogs(emptyList())
-            emptyList()
-        } else {
-            try {
-                val array = JSONArray(json)
-                val items = mutableListOf<ProfileActivationLog>()
-                for (i in 0 until array.length()) {
-                    val log = ProfileActivationLog.fromJsonObject(array.getJSONObject(i))
-                    // 7-day retention policy: discard logs older than 7 days
-                    if (log.timestamp >= sevenDaysAgo) {
-                        items.add(log)
-                    }
-                }
-                items
-            } catch (e: Exception) {
-                emptyList()
+        try {
+            val arr = JSONArray(raw)
+            val parsed = mutableListOf<ProfileActivationLog>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                parsed.add(ProfileActivationLog.fromJsonObject(obj))
             }
+            _logs.value = parsed
+        } catch (_: Exception) {
+            _logs.value = emptyList()
         }
-        _activationLogs.value = list
     }
 
-    @Synchronized
+    private fun defaultSeedLogs(): List<ProfileActivationLog> {
+        val now = System.currentTimeMillis()
+        val oneHour = 3600 * 1000L
+        val oneDay = 24 * oneHour
+        return listOf(
+            ProfileActivationLog(
+                toProfileName = "Living Room",
+                fromProfileName = "Home Office",
+                timestamp = now - 25 * 60 * 1000L,
+                reason = "BLE beacon signal entered threshold (-56 dBm)",
+                triggerSource = TriggerSource.BLE_BEACON
+            ),
+            ProfileActivationLog(
+                toProfileName = "Home Office",
+                fromProfileName = "Bedroom",
+                timestamp = now - 4 * oneHour,
+                reason = "Context manually switched by user",
+                triggerSource = TriggerSource.MANUAL
+            ),
+            ProfileActivationLog(
+                toProfileName = "Bedroom",
+                fromProfileName = "Living Room",
+                timestamp = now - 1 * oneDay - 2 * oneHour,
+                reason = "NFC Tag scanned: Nightstand NFC",
+                triggerSource = TriggerSource.NFC_TAG
+            ),
+            ProfileActivationLog(
+                toProfileName = "Living Room",
+                fromProfileName = "Home Office",
+                timestamp = now - 2 * oneDay - 5 * oneHour,
+                reason = "BLE beacon signal entered threshold (-54 dBm)",
+                triggerSource = TriggerSource.BLE_BEACON
+            ),
+            ProfileActivationLog(
+                toProfileName = "Home Office",
+                fromProfileName = "Living Room",
+                timestamp = now - 3 * oneDay - 8 * oneHour,
+                reason = "QR Code scanned: Desk QR Trigger",
+                triggerSource = TriggerSource.QR_CODE
+            ),
+            ProfileActivationLog(
+                toProfileName = "Mosque",
+                fromProfileName = "Living Room",
+                timestamp = now - 5 * oneDay - 3 * oneHour,
+                reason = "NFC Tag scanned: Car Mount NFC",
+                triggerSource = TriggerSource.NFC_TAG
+            ),
+            ProfileActivationLog(
+                toProfileName = "Home Office",
+                fromProfileName = "Bedroom",
+                timestamp = now - 7 * oneDay - 1 * oneHour,
+                reason = "BLE beacon signal entered threshold (-58 dBm)",
+                triggerSource = TriggerSource.BLE_BEACON
+            ),
+            ProfileActivationLog(
+                toProfileName = "Bedroom",
+                fromProfileName = "Living Room",
+                timestamp = now - 10 * oneDay - 6 * oneHour,
+                reason = "Context manually switched by user",
+                triggerSource = TriggerSource.MANUAL
+            ),
+            ProfileActivationLog(
+                toProfileName = "Living Room",
+                fromProfileName = "Home Office",
+                timestamp = now - 14 * oneDay - 4 * oneHour,
+                reason = "BLE beacon signal entered threshold (-55 dBm)",
+                triggerSource = TriggerSource.BLE_BEACON
+            ),
+            ProfileActivationLog(
+                toProfileName = "Home Office",
+                fromProfileName = "Bedroom",
+                timestamp = now - 18 * oneDay - 2 * oneHour,
+                reason = "QR Code scanned: Office Door QR",
+                triggerSource = TriggerSource.QR_CODE
+            ),
+            ProfileActivationLog(
+                toProfileName = "Bedroom",
+                fromProfileName = "Living Room",
+                timestamp = now - 21 * oneDay - 7 * oneHour,
+                reason = "NFC Tag scanned: Nightstand NFC",
+                triggerSource = TriggerSource.NFC_TAG
+            )
+        )
+    }
+
     fun logActivation(
         toProfileName: String,
         fromProfileName: String?,
         reason: String,
-        triggerSource: TriggerSource = TriggerSource.BEACON_SIGNAL
+        triggerSource: TriggerSource = TriggerSource.MANUAL
     ): ProfileActivationLog {
-        val newEntry = ProfileActivationLog(
+        val entry = ProfileActivationLog(
             toProfileName = toProfileName,
             fromProfileName = fromProfileName,
             timestamp = System.currentTimeMillis(),
             reason = reason,
             triggerSource = triggerSource
         )
-        val current = _activationLogs.value.toMutableList()
-        current.add(0, newEntry)
-        // Keep last 40 logs
-        if (current.size > 40) {
-            current.removeAt(current.size - 1)
+
+        val updated = (listOf(entry) + _logs.value).take(MAX_LOG_ENTRIES)
+        saveLogsInternal(updated)
+
+        try {
+            NotificationPreferencesRepository.getInstance(appContext)
+                .sendContextSwitchNotification(
+                    fromContextName = fromProfileName,
+                    toContextName = toProfileName.takeIf { !it.equals("Baseline", ignoreCase = true) },
+                    triggerSourceLabel = triggerSource.getDisplayName(),
+                    reason = reason
+                )
+        } catch (_: Exception) {
         }
-        _activationLogs.value = current
-        saveLogs(current)
-        return newEntry
+
+        return entry
     }
 
-    @Synchronized
     fun clearLogs() {
-        _activationLogs.value = emptyList()
-        prefs.edit().putString(KEY_LOGS_JSON, "[]").putBoolean("key_logs_cleared", true).commit()
+        prefs.edit().remove(KEY_LOGS_JSON).apply()
+        _logs.value = emptyList()
     }
 
-    @Synchronized
-    fun resetToFactoryDefaults() {
-        prefs.edit().clear().commit()
-        saveLogs(emptyList())
-        _activationLogs.value = emptyList()
+    fun resetToDefaultSeedLogs() {
+        clearLogs()
     }
 
-    private fun saveLogs(list: List<ProfileActivationLog>) {
-        val array = JSONArray()
-        list.forEach { array.put(it.toJsonObject()) }
-        prefs.edit().putString(KEY_LOGS_JSON, array.toString()).apply()
+    fun clearAll() = clearLogs()
+
+    private fun saveLogsInternal(entries: List<ProfileActivationLog>) {
+        val arr = JSONArray()
+        entries.forEach { entry ->
+            arr.put(entry.toJsonObject())
+        }
+        prefs.edit().putString(KEY_LOGS_JSON, arr.toString()).apply()
+        _logs.value = entries
+    }
+
+    companion object {
+        private const val PREFS_NAME = "contextpulse_activation_logs_v1"
+        private const val KEY_LOGS_JSON = "activation_logs_json_v1"
+        private const val MAX_LOG_ENTRIES = 100
+
+        @Volatile
+        private var INSTANCE: ActivationLogRepository? = null
+
+        fun getInstance(context: Context): ActivationLogRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: ActivationLogRepository(context.applicationContext).also {
+                    INSTANCE = it
+                }
+            }
+        }
     }
 }

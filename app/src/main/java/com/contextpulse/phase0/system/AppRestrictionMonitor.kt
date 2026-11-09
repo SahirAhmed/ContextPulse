@@ -60,7 +60,7 @@ object AppRestrictionMonitor {
      * Uses a fast, responsive polling loop (default 400ms) with dual UsageStats
      * and ActivityManager process detection.
      */
-    fun startContinuousMonitoring(context: Context, intervalMs: Long = 400L) {
+    fun startContinuousMonitoring(context: Context, intervalMs: Long = 200L) {
         if (_isMonitoring.value) return
 
         _isMonitoring.value = true
@@ -77,17 +77,24 @@ object AppRestrictionMonitor {
                         _lastDetectedApp.value = currentApp
                         _lastLatencyMs.value = latency
 
+                        // Feed into App Usage Budget tracker
+                        AppUsageBudgetManager.onForegroundAppHeartbeat(context, currentApp)
+
                         val isRestricted = isPackageRestricted(context, currentApp)
 
                         val now = System.currentTimeMillis()
-                        // Intercept if restricted and user is trying to access it (throttle 2.5s)
-                        if (isRestricted && (currentApp != lastHandledApp || (now - lastHandledTimestamp) > 2500L)) {
+                        // Intercept if restricted and user is trying to access it (throttle 1.2s for repeat app)
+                        if (isRestricted && (currentApp != lastHandledApp || (now - lastHandledTimestamp) > 1200L)) {
                             lastHandledApp = currentApp
                             lastHandledTimestamp = now
 
-                            Log.w(TAG, "INTERCEPTING RESTRICTED APP: $currentApp (Room: $currentActiveRoomName)")
+                            val hasBudget = AppUsageBudgetManager.getActiveBudgetForPackage(currentApp) != null
+                            val isBudgetExhausted = hasBudget && AppUsageBudgetManager.getRemainingSecondsForPackage(context, currentApp) <= 0
+                            val blockReason = if (isBudgetExhausted) OverlayBlockerActivity.REASON_BUDGET_EXHAUSTED else OverlayBlockerActivity.REASON_BLOCK_LIST
+
+                            Log.w(TAG, "INTERCEPTING RESTRICTED APP: $currentApp (Room: $currentActiveRoomName, reason=$blockReason)")
                             val actionTaken = try {
-                                SystemControllers.showRestrictionOverlay(context, currentApp, currentActiveRoomName)
+                                SystemControllers.showRestrictionOverlay(context, currentApp, currentActiveRoomName, blockReason)
                                 "Launched Blocker Overlay"
                             } catch (e: Exception) {
                                 SystemControllers.kickToHomeScreen(context)
@@ -106,6 +113,12 @@ object AppRestrictionMonitor {
                             list.add(entry)
                             _interceptionHistory.value = list
                         }
+
+                        // Update floating timer overlay dynamically for the current foreground app
+                        FloatingTimerOverlayManager.updateTimerState(context, currentApp)
+                    } else {
+                        // User is in ContextPulse or on Launcher -> evaluate floating timer (e.g. sleep timer)
+                        FloatingTimerOverlayManager.updateTimerState(context, currentApp)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in restriction polling loop", e)
@@ -117,32 +130,29 @@ object AppRestrictionMonitor {
     }
 
     fun isPackageRestricted(context: Context, packageName: String): Boolean {
-        if (targetRestrictedPackages.isEmpty()) return false
         if (packageName == context.packageName) return false // Never block ContextPulse
 
-        if (targetRestrictedPackages.contains(packageName)) return true
+        val normalizedCurrent = packageName.substringBefore('/').trim().lowercase()
 
-        val lowerPkg = packageName.lowercase()
-        for (item in targetRestrictedPackages) {
-            val lowerItem = item.lowercase()
-            if (lowerPkg == lowerItem || lowerPkg.contains(lowerItem) || lowerItem.contains(lowerPkg)) {
+        // If app has an active budget that has run out of time (0s left), strictly block it
+        val budget = AppUsageBudgetManager.getActiveBudgetForPackage(packageName)
+        if (budget != null) {
+            val remainingSec = AppUsageBudgetManager.getRemainingSecondsForPackage(context, packageName)
+            if (remainingSec <= 0) {
                 return true
             }
         }
 
-        try {
-            val pm = context.packageManager
-            val appInfo = pm.getApplicationInfo(packageName, 0)
-            val appLabel = pm.getApplicationLabel(appInfo).toString().lowercase()
-            for (item in targetRestrictedPackages) {
-                val lowerItem = item.lowercase()
-                if (appLabel == lowerItem || appLabel.contains(lowerItem) || lowerItem.contains(appLabel)) {
-                    return true
-                }
+        if (targetRestrictedPackages.isEmpty()) return false
+
+        // Exact package matching only: do not compare app labels or do substring matches
+        for (item in targetRestrictedPackages) {
+            val normalizedItem = item.substringBefore('/').trim().lowercase()
+            if (normalizedCurrent == normalizedItem) {
+                return true
             }
-        } catch (e: Exception) {
-            // Ignore package lookup errors
         }
+
         return false
     }
 
