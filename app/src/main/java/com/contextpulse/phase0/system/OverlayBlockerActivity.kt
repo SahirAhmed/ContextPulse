@@ -9,8 +9,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Home
@@ -73,19 +75,23 @@ class OverlayBlockerActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xF0080B11)),
+                    .background(Color(0xF0080B11))
+                    .systemBarsPadding(),
                 contentAlignment = Alignment.Center
             ) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
+                        .widthIn(max = 520.dp)
                         .padding(16.dp),
                     shape = RoundedCornerShape(26.dp),
                     border = BorderStroke(1.5.dp, Color(0xFFF43F5E).copy(alpha = 0.6f)),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFF141926))
                 ) {
                     Column(
-                        modifier = Modifier.padding(26.dp),
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(26.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Warning block icon

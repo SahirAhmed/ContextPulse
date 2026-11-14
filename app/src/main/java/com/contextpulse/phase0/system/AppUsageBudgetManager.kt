@@ -26,6 +26,7 @@ object AppUsageBudgetManager {
 
     private var activeContextId: String? = null
     private var activeContextName: String? = null
+    private var activeModeId: String? = null
     private var activeBudgets: List<AppUsageBudget> = emptyList()
 
     private var lastTrackedPackage: String? = null
@@ -46,7 +47,12 @@ object AppUsageBudgetManager {
         return SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
     }
 
-    private fun makeKey(contextId: String, packageName: String): String {
+    private fun makeKey(contextId: String, packageName: String, modeId: String? = activeModeId): String {
+        val scopedMode = modeId?.takeIf { it.isNotBlank() } ?: "default"
+        return "usage_${contextId}_${scopedMode}_${packageName}_${getTodayDateString()}"
+    }
+
+    private fun makeLegacyKey(contextId: String, packageName: String): String {
         return "usage_${contextId}_${packageName}_${getTodayDateString()}"
     }
 
@@ -81,22 +87,40 @@ object AppUsageBudgetManager {
         contextId: String?,
         contextName: String?,
         budgets: List<AppUsageBudget>,
-        resetSession: Boolean = true
+        resetSession: Boolean = true,
+        modeId: String? = null
     ) {
-        if (resetSession && !contextId.isNullOrBlank()) {
+        if (budgets.isEmpty() || contextId.isNullOrBlank()) {
+            if (resetSession && !contextId.isNullOrBlank()) {
+                resetUsageForContext(context, contextId)
+            }
+            activeContextId = null
+            activeContextName = null
+            activeModeId = null
+            activeBudgets = emptyList()
+            lastTrackedPackage = null
+            lastTrackedTimestamp = 0L
+            accumulatedMillis = 0L
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
+            Log.d(TAG, "Cleared active usage budgets")
+            return
+        }
+
+        if (resetSession) {
             resetUsageForContext(context, contextId)
         }
 
         activeContextId = contextId
         activeContextName = contextName
+        activeModeId = modeId
         activeBudgets = budgets
         lastTrackedPackage = null
         lastTrackedTimestamp = 0L
         accumulatedMillis = 0L
 
-        Log.d(TAG, "Configured ${budgets.size} budgets for context '$contextName' ($contextId)")
+        Log.d(TAG, "Configured ${budgets.size} budgets for context '$contextName' ($contextId, mode=$modeId)")
 
-        if (contextId != null && !resetSession) {
+        if (!resetSession) {
             checkAndEnforceExhaustedBudgets(context)
         }
     }
@@ -112,7 +136,11 @@ object AppUsageBudgetManager {
 
         val prefs = getPrefs(context)
         val direct = prefs.getInt(key, -1)
-        val value = if (direct >= 0) direct else prefs.getInt(makeKey(contextId, packageName), 0)
+        val value = when {
+            direct >= 0 -> direct
+            prefs.contains(makeKey(contextId, packageName)) -> prefs.getInt(makeKey(contextId, packageName), 0)
+            else -> prefs.getInt(makeLegacyKey(contextId, norm), 0)
+        }
         memoryUsageCache[key] = value
         return value
     }
@@ -121,12 +149,20 @@ object AppUsageBudgetManager {
         return getUsageSeconds(context, contextId, packageName) / 60
     }
 
-    fun getActiveBudgetForPackage(packageName: String): AppUsageBudget? {
+    /**
+     * Pure evaluation helper for test isolation.
+     * Evaluates budget matching against an explicit list without reading or mutating singleton state.
+     */
+    fun resolveBudgetForPackagePure(packageName: String, budgets: List<AppUsageBudget>): AppUsageBudget? {
         val target = normalizePkg(packageName)
-        return activeBudgets.find { budget ->
+        return budgets.find { budget ->
             val bPkg = normalizePkg(budget.packageName)
             bPkg == target
         }
+    }
+
+    fun getActiveBudgetForPackage(packageName: String): AppUsageBudget? {
+        return resolveBudgetForPackagePure(packageName, activeBudgets)
     }
 
     fun getRemainingSecondsForPackage(context: Context, packageName: String): Int {
@@ -219,7 +255,8 @@ object AppUsageBudgetManager {
             currentRestricted.add(packageName)
             AppRestrictionMonitor.setRestrictedPackages(
                 packages = currentRestricted,
-                roomName = activeContextName ?: "Context"
+                roomName = activeContextName ?: "Context",
+                modeId = activeModeId
             )
             AppRestrictionMonitor.startContinuousMonitoring(context, 200L)
         }

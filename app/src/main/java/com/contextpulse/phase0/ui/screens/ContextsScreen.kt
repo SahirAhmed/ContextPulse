@@ -13,8 +13,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Bluetooth
@@ -26,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -35,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.contextpulse.phase0.model.ContextItem
 import com.contextpulse.phase0.model.TriggerItem
 import com.contextpulse.phase0.model.TriggerType
@@ -76,7 +80,7 @@ fun ContextsScreen(
     onAddContext: (name: String, subtitle: String, iconName: String) -> Unit,
     onDeleteContext: (contextId: String) -> Unit,
     onEditContext: (ContextItem) -> Unit,
-    onAttachTrigger: (triggerId: String, contextName: String) -> Unit,
+    onAttachTrigger: (triggerId: String, contextId: String, contextName: String) -> Unit,
     onDetachTrigger: (triggerId: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -130,16 +134,24 @@ fun ContextsScreen(
     // Save as Template Dialog
     if (contextToSaveAsTemplate != null) {
         val targetContext = contextToSaveAsTemplate!!
-        Dialog(onDismissRequest = { contextToSaveAsTemplate = null }) {
+        Dialog(
+            onDismissRequest = { contextToSaveAsTemplate = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 560.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(22.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
@@ -234,19 +246,23 @@ fun ContextsScreen(
             )
         }
 
-        Dialog(onDismissRequest = { showAddDialog = false }) {
+        Dialog(
+            onDismissRequest = { showAddDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp)
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 560.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -504,20 +520,32 @@ fun ContextsScreen(
     // Attach Trigger Dialog
     if (attachingContext != null) {
         val targetContext = attachingContext!!
-        // Only show triggers that are not assigned to ANY context
-        val availableTriggers = triggers.filter { it.assignedRoomName.isNullOrBlank() }
+        val assignedToTarget = triggers.filter {
+            (it.assignedRoomId.isNotBlank() && it.assignedRoomId == targetContext.id) ||
+                it.assignedRoomName.equals(targetContext.name, ignoreCase = true)
+        }
+        val lockedType = assignedToTarget.firstOrNull { it.type != TriggerType.UNCONFIGURED }?.type
+        val availableTriggers = triggers.filter { it.assignedRoomId.isBlank() && it.assignedRoomName.isBlank() }
 
-        Dialog(onDismissRequest = { attachingContext = null }) {
+        Dialog(
+            onDismissRequest = { attachingContext = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 560.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "Assign Trigger to ${targetContext.name}",
@@ -526,8 +554,34 @@ fun ContextsScreen(
                         color = theme.textPrimary
                     )
 
+                    if (lockedType != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.primary.copy(alpha = 0.1f))
+                                .border(1.dp, theme.primary.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = "Locked to ${lockedType.getDisplayName()} triggers. Unpair existing triggers to switch trigger types.",
+                                fontSize = 12.sp,
+                                color = theme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Select the first trigger type for this context (BLE Beacon, QR Code, or NFC Tag). Additional triggers will match this type.",
+                            fontSize = 12.sp,
+                            color = theme.textSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+
                     if (availableTriggers.isEmpty()) {
-                        val hasAssignedTriggers = triggers.any { !it.assignedRoomName.isNullOrBlank() }
+                        val hasAssignedTriggers = triggers.any { it.assignedRoomId.isNotBlank() || !it.assignedRoomName.isNullOrBlank() }
                         Text(
                             text = if (hasAssignedTriggers) {
                                 "All existing triggers are currently assigned to other contexts. To attach a trigger to ${targetContext.name}, detach it from its current context first."
@@ -539,17 +593,28 @@ fun ContextsScreen(
                             lineHeight = 18.sp
                         )
                     } else {
-                        availableTriggers.forEach { trig ->
+                        val sortedTriggers = availableTriggers.sortedByDescending { trig ->
+                            lockedType == null || trig.type == TriggerType.UNCONFIGURED || trig.type == lockedType
+                        }
+                        sortedTriggers.forEach { trig ->
+                            val isCompatible = lockedType == null || trig.type == TriggerType.UNCONFIGURED || trig.type == lockedType
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .alpha(if (isCompatible) 1f else 0.45f)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(theme.background)
                                     .border(1.dp, theme.border, RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        onAttachTrigger(trig.id, targetContext.name)
-                                        attachingContext = null
-                                    }
+                                    .then(
+                                        if (isCompatible) {
+                                            Modifier.clickable {
+                                                onAttachTrigger(trig.id, targetContext.id, targetContext.name)
+                                                attachingContext = null
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
                                     .padding(12.dp)
                             ) {
                                 Row(
@@ -564,7 +629,7 @@ fun ContextsScreen(
                                             else -> Icons.Default.Sensors
                                         },
                                         contentDescription = null,
-                                        tint = theme.primary,
+                                        tint = if (isCompatible) theme.primary else theme.textSecondary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Column {
@@ -575,9 +640,13 @@ fun ContextsScreen(
                                             color = theme.textPrimary
                                         )
                                         Text(
-                                            text = trig.type.getDisplayName(),
+                                            text = if (isCompatible) {
+                                                trig.type.getDisplayName()
+                                            } else {
+                                                "${trig.type.getDisplayName()} • Incompatible (${lockedType?.getDisplayName()} only)"
+                                            },
                                             fontSize = 11.5.sp,
-                                            color = theme.textSecondary
+                                            color = if (isCompatible) theme.textSecondary else Color(0xFFEF4444)
                                         )
                                     }
                                 }
@@ -596,15 +665,24 @@ fun ContextsScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .background(theme.background),
+        contentAlignment = Alignment.TopCenter
     ) {
+        val isWide = maxWidth >= 640.dp
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .widthIn(max = 1080.dp)
+                .fillMaxSize()
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
         item {
             Text(
                 text = "YOUR CONTEXTS & SPACES",
@@ -716,322 +794,398 @@ fun ContextsScreen(
                     }
                 }
             }
+        } else if (isWide) {
+            items(contexts.chunked(2), key = { row -> row.first().id }) { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    rowItems.forEach { contextItem ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            val itemIndex = contexts.indexOf(contextItem)
+                            val assignedTriggers = triggers.filter {
+                                (it.assignedRoomId.isNotBlank() && it.assignedRoomId == contextItem.id) ||
+                                    it.assignedRoomName.equals(contextItem.name, ignoreCase = true)
+                            }
+                            ContextSpaceCard(
+                                contextItem = contextItem,
+                                isActive = contextItem.id == activeContextId,
+                                itemIndex = itemIndex,
+                                totalCount = contexts.size,
+                                assignedTriggers = assignedTriggers,
+                                onMoveUp = {
+                                    runWithLockProtection {
+                                        if (itemIndex > 0) roomRepo.moveRoom(itemIndex, itemIndex - 1)
+                                    }
+                                },
+                                onMoveDown = {
+                                    runWithLockProtection {
+                                        if (itemIndex < contexts.size - 1) roomRepo.moveRoom(itemIndex, itemIndex + 1)
+                                    }
+                                },
+                                onSaveAsTemplate = {
+                                    templateSaveName = contextItem.name
+                                    templateSaveDesc = "${contextItem.profile.modes.size} modes configured"
+                                    contextToSaveAsTemplate = contextItem
+                                },
+                                onDelete = {
+                                    runWithLockProtection { contextPendingDelete = contextItem }
+                                },
+                                onPairTrigger = {
+                                    runWithLockProtection { attachingContext = contextItem }
+                                },
+                                onDetachTrigger = onDetachTrigger,
+                                onSelectContext = { onSelectContext(contextItem) },
+                                onEditContext = {
+                                    runWithLockProtection { onEditContext(contextItem) }
+                                }
+                            )
+                        }
+                    }
+                    if (rowItems.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         } else {
             items(contexts, key = { it.id }) { contextItem ->
-                val isActive = contextItem.id == activeContextId
-                val modesCount = contextItem.profile.modes.size
-                val activeMode = contextItem.profile.resolveActiveMode()
-                val assignedTriggers = triggers.filter { it.assignedRoomName == contextItem.name }
+                val itemIndex = contexts.indexOf(contextItem)
+                val assignedTriggers = triggers.filter {
+                    (it.assignedRoomId.isNotBlank() && it.assignedRoomId == contextItem.id) ||
+                        it.assignedRoomName.equals(contextItem.name, ignoreCase = true)
+                }
+                ContextSpaceCard(
+                    contextItem = contextItem,
+                    isActive = contextItem.id == activeContextId,
+                    itemIndex = itemIndex,
+                    totalCount = contexts.size,
+                    assignedTriggers = assignedTriggers,
+                    onMoveUp = {
+                        runWithLockProtection {
+                            if (itemIndex > 0) roomRepo.moveRoom(itemIndex, itemIndex - 1)
+                        }
+                    },
+                    onMoveDown = {
+                        runWithLockProtection {
+                            if (itemIndex < contexts.size - 1) roomRepo.moveRoom(itemIndex, itemIndex + 1)
+                        }
+                    },
+                    onSaveAsTemplate = {
+                        templateSaveName = contextItem.name
+                        templateSaveDesc = "${contextItem.profile.modes.size} modes configured"
+                        contextToSaveAsTemplate = contextItem
+                    },
+                    onDelete = {
+                        runWithLockProtection { contextPendingDelete = contextItem }
+                    },
+                    onPairTrigger = {
+                        runWithLockProtection { attachingContext = contextItem }
+                    },
+                    onDetachTrigger = onDetachTrigger,
+                    onSelectContext = { onSelectContext(contextItem) },
+                    onEditContext = {
+                        runWithLockProtection { onEditContext(contextItem) }
+                    }
+                )
+            }
+        }
+    }
+    }
+}
 
-                Card(
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isActive) theme.primary.copy(alpha = 0.08f) else theme.surface
-                    ),
-                    border = BorderStroke(
-                        if (isActive) 1.5.dp else 1.dp,
-                        if (isActive) theme.primary else theme.border
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ContextSpaceCard(
+    contextItem: ContextItem,
+    isActive: Boolean,
+    itemIndex: Int,
+    totalCount: Int,
+    assignedTriggers: List<TriggerItem>,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onSaveAsTemplate: () -> Unit,
+    onDelete: () -> Unit,
+    onPairTrigger: () -> Unit,
+    onDetachTrigger: (String) -> Unit,
+    onSelectContext: () -> Unit,
+    onEditContext: () -> Unit
+) {
+    val theme = LocalContextPulseTheme.current
+    val modesCount = contextItem.profile.modes.size
+    val activeMode = contextItem.profile.resolveActiveMode()
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isActive) theme.primary.copy(alpha = 0.08f) else theme.surface
+        ),
+        border = BorderStroke(
+            if (isActive) 1.5.dp else 1.dp,
+            if (isActive) theme.primary else theme.border
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(theme.primary.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        // Title row
+                        Icon(
+                            imageVector = getContextIcon(contextItem.iconName),
+                            contentDescription = null,
+                            tint = theme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = contextItem.name,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+
+                            if (isActive) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(theme.primary)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "ACTIVE",
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = theme.onPrimary,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onMoveUp,
+                        enabled = itemIndex > 0,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = "Move Up",
+                            tint = if (itemIndex > 0) theme.primary else theme.border,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onMoveDown,
+                        enabled = itemIndex < totalCount - 1,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "Move Down",
+                            tint = if (itemIndex < totalCount - 1) theme.primary else theme.border,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onSaveAsTemplate,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkAdd,
+                            contentDescription = "Save as Template",
+                            tint = theme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = "Delete Context",
+                            tint = theme.textSecondary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(theme.background)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "$modesCount Mode${if (modesCount > 1) "s" else ""}",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = theme.textPrimary
+                        )
+                        Text(
+                            text = "Current Mode: ${activeMode.name}",
+                            fontSize = 11.5.sp,
+                            color = theme.primary
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (activeMode.autoLaunchAppEnabled && activeMode.autoLaunchPackage.isNotBlank()) {
+                            Icon(Icons.Default.RocketLaunch, contentDescription = "Auto-Open App", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        if (activeMode.dndEnabled) {
+                            Icon(Icons.Default.DoNotDisturb, contentDescription = "DND", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        if (activeMode.eyeComfortEnabled) {
+                            Icon(Icons.Default.NightlightRound, contentDescription = "Eye Comfort", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        if (activeMode.appRestrictionsEnabled && activeMode.totalRestrictedCount > 0) {
+                            Icon(Icons.Default.Apps, contentDescription = "Restricted Apps", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        if (activeMode.brightnessEnabled) {
+                            Icon(Icons.Default.BrightnessMedium, contentDescription = "Brightness", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        if (activeMode.stickyNoteEnabled && (activeMode.stickyNoteText.isNotBlank() || activeMode.stickyNoteChecklist.isNotEmpty())) {
+                            Icon(Icons.Default.StickyNote2, contentDescription = "Sticky Note", tint = theme.primary, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Paired Triggers (${assignedTriggers.size})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = theme.textSecondary
+                )
+
+                TextButton(
+                    onClick = onPairTrigger,
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text("+ Pair Trigger", fontSize = 12.sp, color = theme.primary, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (assignedTriggers.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    assignedTriggers.forEach { trg ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(theme.background)
+                                .border(1.dp, theme.border, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Box(
+                                Text(trg.name, fontSize = 11.sp, color = theme.textPrimary, fontWeight = FontWeight.Medium)
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Unpair",
+                                    tint = theme.textSecondary,
                                     modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(theme.primary.copy(alpha = 0.14f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = getContextIcon(contextItem.iconName),
-                                        contentDescription = null,
-                                        tint = theme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = contextItem.name,
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = theme.textPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-
-                                        if (isActive) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(theme.primary)
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "ACTIVE",
-                                                    fontSize = 9.5.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = theme.onPrimary,
-                                                    maxLines = 1,
-                                                    softWrap = false
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                val itemIndex = contexts.indexOf(contextItem)
-                                IconButton(
-                                    onClick = {
-                                        runWithLockProtection {
-                                            if (itemIndex > 0) {
-                                                roomRepo.moveRoom(itemIndex, itemIndex - 1)
-                                            }
-                                        }
-                                    },
-                                    enabled = itemIndex > 0,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowUpward,
-                                        contentDescription = "Move Up",
-                                        tint = if (itemIndex > 0) theme.primary else theme.border,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        runWithLockProtection {
-                                            if (itemIndex < contexts.size - 1) {
-                                                roomRepo.moveRoom(itemIndex, itemIndex + 1)
-                                            }
-                                        }
-                                    },
-                                    enabled = itemIndex < contexts.size - 1,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDownward,
-                                        contentDescription = "Move Down",
-                                        tint = if (itemIndex < contexts.size - 1) theme.primary else theme.border,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        templateSaveName = contextItem.name
-                                        templateSaveDesc = "${contextItem.profile.modes.size} modes configured"
-                                        contextToSaveAsTemplate = contextItem
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.BookmarkAdd,
-                                        contentDescription = "Save as Template",
-                                        tint = theme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        runWithLockProtection {
-                                            contextPendingDelete = contextItem
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Outlined.Delete,
-                                        contentDescription = "Delete Context",
-                                        tint = theme.textSecondary.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Modes preview banner
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(theme.background)
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "$modesCount Mode${if (modesCount > 1) "s" else ""}",
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = theme.textPrimary
-                                    )
-                                    Text(
-                                        text = "Current Mode: ${activeMode.name}",
-                                        fontSize = 11.5.sp,
-                                        color = theme.primary
-                                    )
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    // 1. Auto-Open App
-                                    if (activeMode.autoLaunchAppEnabled && activeMode.autoLaunchPackage.isNotBlank()) {
-                                        Icon(Icons.Default.RocketLaunch, contentDescription = "Auto-Open App", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    // 2. Do Not Disturb
-                                    if (activeMode.dndEnabled) {
-                                        Icon(Icons.Default.DoNotDisturb, contentDescription = "DND", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    // 3. Eye Comfort
-                                    if (activeMode.eyeComfortEnabled) {
-                                        Icon(Icons.Default.NightlightRound, contentDescription = "Eye Comfort", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    // 4. Restricted Apps (Outright Blocked or Budgeted)
-                                    if (activeMode.appRestrictionsEnabled && activeMode.totalRestrictedCount > 0) {
-                                        Icon(Icons.Default.Apps, contentDescription = "Restricted Apps", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    // 5. Screen Brightness
-                                    if (activeMode.brightnessEnabled) {
-                                        Icon(Icons.Default.BrightnessMedium, contentDescription = "Brightness", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                    // 6. Sticky Note
-                                    if (activeMode.stickyNoteEnabled && (activeMode.stickyNoteText.isNotBlank() || activeMode.stickyNoteChecklist.isNotEmpty())) {
-                                        Icon(Icons.Default.StickyNote2, contentDescription = "Sticky Note", tint = theme.primary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-
-                        // Assigned Triggers list / chip row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Paired Triggers (${assignedTriggers.size})",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = theme.textSecondary
-                            )
-
-                            TextButton(
-                                onClick = {
-                                    runWithLockProtection {
-                                        attachingContext = contextItem
-                                    }
-                                },
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Text("+ Pair Trigger", fontSize = 12.sp, color = theme.primary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        if (assignedTriggers.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                assignedTriggers.forEach { trg ->
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(theme.background)
-                                            .border(1.dp, theme.border, RoundedCornerShape(8.dp))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(trg.name, fontSize = 11.sp, color = theme.textPrimary, fontWeight = FontWeight.Medium)
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Unpair",
-                                                tint = theme.textSecondary,
-                                                modifier = Modifier
-                                                    .size(13.dp)
-                                                    .clickable { onDetachTrigger(trg.id) }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Action Buttons: Select (manual switch) and Edit (context profile settings)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { onSelectContext(contextItem) },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f).height(40.dp),
-                                border = BorderStroke(1.dp, if (isActive) theme.primary else theme.border)
-                            ) {
-                                Text(
-                                    text = if (isActive) "Active Space" else "Activate Now",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isActive) theme.primary else theme.textPrimary
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    runWithLockProtection {
-                                        onEditContext(contextItem)
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f).height(40.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = theme.primary,
-                                    contentColor = theme.onPrimary
-                                )
-                            ) {
-                                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Edit Context",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
+                                        .size(13.dp)
+                                        .clickable { onDetachTrigger(trg.id) }
                                 )
                             }
                         }
                     }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onSelectContext,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    border = BorderStroke(1.dp, if (isActive) theme.primary else theme.border)
+                ) {
+                    Text(
+                        text = if (isActive) "Active Space" else "Activate Now",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isActive) theme.primary else theme.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Button(
+                    onClick = onEditContext,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(40.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.primary,
+                        contentColor = theme.onPrimary
+                    )
+                ) {
+                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Edit Context",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -1068,7 +1222,7 @@ fun ProfilesScreen(
         onAddContext = onAddRoom,
         onDeleteContext = onDeleteRoom,
         onEditContext = onEditProfile,
-        onAttachTrigger = onAttachBeacon,
+        onAttachTrigger = { trigId, ctxId, ctxName -> onAttachBeacon(trigId, ctxName) },
         onDetachTrigger = onDetachBeacon,
         modifier = modifier
     )

@@ -43,6 +43,8 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             for (appWidgetId in appWidgetIds) {
                 updateWidget(context, appWidgetManager, appWidgetId)
             }
+            QuickSwitch6WidgetProvider.updateAllWidgets(context)
+            ActiveContextWidgetProvider.updateAllWidgets(context)
         }
 
         fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
@@ -90,16 +92,8 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             remoteViews.setImageViewBitmap(R.id.widget_bg, bgBitmap)
 
             // Brand Logo
-            val iconDrawable = androidx.core.content.ContextCompat.getDrawable(context, currentTheme.getLauncherIconResId())
-            if (iconDrawable != null) {
-                val logoBmp = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(logoBmp)
-                val path = Path().apply {
-                    addRoundRect(RectF(0f, 0f, 96f, 96f), 22f, 22f, Path.Direction.CW)
-                }
-                canvas.clipPath(path)
-                iconDrawable.setBounds(0, 0, 96, 96)
-                iconDrawable.draw(canvas)
+            val logoBmp = createThemeLogoBitmap(context, currentTheme.getLauncherIconResId(), 96, 22f)
+            if (logoBmp != null) {
                 remoteViews.setImageViewBitmap(R.id.widget_logo, logoBmp)
             } else {
                 remoteViews.setImageViewResource(R.id.widget_logo, currentTheme.getLauncherIconResId())
@@ -120,6 +114,7 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             remoteViews.setInt(R.id.widget_configure_icon, "setColorFilter", currentTheme.accentHex.toInt())
             val configIntent = Intent(context, ContextPulseWidgetConfigureActivity::class.java).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                putExtra(ContextPulseWidgetConfigureActivity.EXTRA_MAX_SLOTS, 3)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             val configPendingIntent = PendingIntent.getActivity(
@@ -230,7 +225,25 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             return remoteViews
         }
 
-        private fun createCardBitmap(
+        internal fun createThemeLogoBitmap(
+            context: Context,
+            resId: Int,
+            sizePx: Int,
+            cornerRadiusPx: Float
+        ): Bitmap? {
+            val iconDrawable = androidx.core.content.ContextCompat.getDrawable(context, resId) ?: return null
+            val logoBmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(logoBmp)
+            val path = Path().apply {
+                addRoundRect(RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat()), cornerRadiusPx, cornerRadiusPx, Path.Direction.CW)
+            }
+            canvas.clipPath(path)
+            iconDrawable.setBounds(0, 0, sizePx, sizePx)
+            iconDrawable.draw(canvas)
+            return logoBmp
+        }
+
+        internal fun createCardBitmap(
             widthPx: Int,
             heightPx: Int,
             cornerRadiusPx: Float,
@@ -260,7 +273,7 @@ class ContextPulseWidgetProvider : AppWidgetProvider() {
             return bitmap
         }
 
-        private fun createDotBitmap(sizePx: Int, color: Int): Bitmap {
+        internal fun createDotBitmap(sizePx: Int, color: Int): Bitmap {
             val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -48,6 +48,17 @@ object FloatingTimerOverlayManager {
     )
 
     /**
+     * Immediately clears any active app usage budget overlay when budgets are cleared or modes switch.
+     */
+    fun clearBudgetOverlay(context: Context) {
+        nonBudgetStartTime = 0L
+        lastForegroundPackage = null
+        if (_currentState.value.type == FloatingTimerType.APP_USAGE_BUDGET) {
+            applyState(context, FloatingTimerState(type = FloatingTimerType.NONE))
+        }
+    }
+
+    /**
      * Evaluates current sleep and app usage budget status and updates the overlay.
      */
     fun updateTimerState(context: Context, currentForegroundPackage: String? = null) {
@@ -103,10 +114,11 @@ object FloatingTimerOverlayManager {
             }
         }
 
-        // Grace period before dismissing overlay: if the overlay is currently showing an APP_USAGE_BUDGET,
-        // don't dismiss immediately when user pulls down shade or switches sub-activity; require 4 seconds of sustained absence.
+        // Grace period before dismissing overlay: if the overlay is currently showing an APP_USAGE_BUDGET
+        // AND budgets are still active in the current mode, don't dismiss immediately when pulling shade.
         val currentStateValue = _currentState.value
-        if (currentStateValue.type == FloatingTimerType.APP_USAGE_BUDGET) {
+        val hasActiveBudgets = AppUsageBudgetManager.getActiveBudgets().isNotEmpty()
+        if (currentStateValue.type == FloatingTimerType.APP_USAGE_BUDGET && hasActiveBudgets) {
             val now = System.currentTimeMillis()
             if (nonBudgetStartTime == 0L) {
                 nonBudgetStartTime = now

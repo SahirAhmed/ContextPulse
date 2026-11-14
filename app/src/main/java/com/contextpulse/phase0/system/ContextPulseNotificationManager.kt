@@ -59,6 +59,11 @@ class ContextPulseNotificationManager(private val context: Context) {
     private val lastAlertedBatteryTimestamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     init {
+        try {
+            val repo = com.contextpulse.phase0.repository.NotificationPreferencesRepository.getInstance(context)
+            _notifyContextChanges.value = repo.contextSwitchNotificationsEnabled.value && _notifyContextChanges.value
+            _notifyBeaconBattery.value = repo.lowBatteryNotificationsEnabled.value && _notifyBeaconBattery.value
+        } catch (_: Exception) {}
         createNotificationChannels()
     }
 
@@ -118,7 +123,7 @@ class ContextPulseNotificationManager(private val context: Context) {
             val beaconChannel = NotificationChannel(
                 CHANNEL_BEACON_ALERTS,
                 "Sensor & Beacon Alerts",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Alerts when BLE beacons have low battery"
                 enableVibration(true)
@@ -170,7 +175,7 @@ class ContextPulseNotificationManager(private val context: Context) {
      * Posts a notification when a beacon reports battery < 15%.
      */
     fun notifyLowBeaconBattery(beaconName: String, batteryPercent: Int) {
-        if (batteryPercent >= 15) return
+        if (batteryPercent < 0 || batteryPercent >= 15) return
         if (!_notifyBeaconBattery.value) return
         if (!isNotificationPermissionGranted()) return
 
@@ -183,20 +188,21 @@ class ContextPulseNotificationManager(private val context: Context) {
         lastAlertedBatteryTimestamps[beaconName] = now
 
         val message = "Beacon '$beaconName' is low on charge ($batteryPercent%). Please recharge or replace its battery."
+        val notifId = NOTIFICATION_ID_BEACON_BATTERY + (beaconName.hashCode() and 0x0FFF)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            NOTIFICATION_ID_BEACON_BATTERY,
+            notifId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_BEACON_ALERTS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Beacon Battery Low")
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle("Beacon Battery Low ($batteryPercent%)")
             .setContentText(message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -205,7 +211,7 @@ class ContextPulseNotificationManager(private val context: Context) {
             .build()
 
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_BEACON_BATTERY, notification)
+            NotificationManagerCompat.from(context).notify(notifId, notification)
         } catch (e: SecurityException) {
             // Missing POST_NOTIFICATIONS permission
         }

@@ -47,6 +47,15 @@ class Phase0Application : Application() {
         } catch (e: Throwable) {
             Log.w(TAG, "Failed to reapply active profile on app launch", e)
         }
+        try {
+            val pending = com.contextpulse.phase0.testing.GuidedTestRecoveryJournal.getPendingRecord(this)
+            if (pending != null) {
+                val (success, msg) = com.contextpulse.phase0.testing.GuidedTestRecoveryJournal.attemptRestoration(this, pending)
+                Log.i(TAG, "Startup guided test recovery result ($success): $msg")
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error checking pending flash test recovery on startup", e)
+        }
     }
 
     private fun createNotificationChannels() {

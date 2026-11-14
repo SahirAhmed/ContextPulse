@@ -17,6 +17,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -120,42 +122,114 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // If an interrupted guided hardware flash test was left pending, attempt restoration upon returning to foreground
+        com.contextpulse.phase0.testing.GuidedTestRecoveryJournal.checkAndAttemptRecovery(this)
+        enableNfcForegroundDispatch()
+    }
+
+    override fun onPause() {
+        disableNfcForegroundDispatch()
+        super.onPause()
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleTriggerDeepLink(intent)
     }
 
+    private fun enableNfcForegroundDispatch() {
+        try {
+            val adapter = android.nfc.NfcAdapter.getDefaultAdapter(this) ?: return
+            if (!adapter.isEnabled) return
+            val intent = android.content.Intent(this, javaClass).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
+            } else {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val pendingIntent = android.app.PendingIntent.getActivity(this, 0, intent, flags)
+
+            val githubHttpsFilter = android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+                addCategory(android.content.Intent.CATEGORY_DEFAULT)
+                addDataScheme("https")
+                addDataScheme("http")
+                addDataAuthority("sahirahmed.github.io", null)
+                addDataAuthority("sahir01ahmed.github.io", null)
+            }
+            val customSchemeFilter = android.content.IntentFilter(android.nfc.NfcAdapter.ACTION_NDEF_DISCOVERED).apply {
+                addCategory(android.content.Intent.CATEGORY_DEFAULT)
+                addDataScheme("contextpulse")
+                addDataAuthority("trigger", null)
+            }
+            adapter.enableForegroundDispatch(
+                this,
+                pendingIntent,
+                arrayOf(githubHttpsFilter, customSchemeFilter),
+                null
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun disableNfcForegroundDispatch() {
+        try {
+            android.nfc.NfcAdapter.getDefaultAdapter(this)?.disableForegroundDispatch(this)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun handleTriggerDeepLink(intent: android.content.Intent?) {
-        val data = intent?.data ?: return
-        val scheme = data.scheme ?: ""
-        val host = data.host ?: ""
-        val path = data.path ?: ""
+        if (intent == null) return
+        val extraction = com.contextpulse.phase0.util.NfcTagHelper.extractFromIntent(intent)
+        val rawUriString = extraction.uriOrPayload
+        val hardwareUid = extraction.hardwareUid
 
-        val rawKey = when {
-            // Query param: e.g. https://sahirahmed.github.io/ContextPulse/?trigger=xyz or https://sahirahmed.github.io/?trigger=xyz
-            !data.getQueryParameter("trigger").isNullOrBlank() -> {
-                data.getQueryParameter("trigger")
+        val data = intent.data ?: rawUriString?.let {
+            try {
+                android.net.Uri.parse(it)
+            } catch (_: Exception) {
+                null
             }
-            !data.getQueryParameter("context").isNullOrBlank() -> {
-                data.getQueryParameter("context")
-            }
-            scheme == "contextpulse" && host == "trigger" -> {
-                data.lastPathSegment ?: path.removePrefix("/")
-            }
-            scheme == "contextpulse" -> {
-                data.getQueryParameter("trigger") ?: data.lastPathSegment ?: path.removePrefix("/")
-            }
-            (scheme == "https" || scheme == "http") && (host.contains("sahirahmed.github.io") || host.contains("sahir01ahmed.github.io")) -> {
-                data.getQueryParameter("trigger") ?: data.getQueryParameter("context") ?: data.lastPathSegment
-            }
-            (scheme == "https" || scheme == "http") && path.contains("trigger") -> {
-                data.getQueryParameter("trigger") ?: data.lastPathSegment
-            }
-            else -> data.getQueryParameter("trigger") ?: data.lastPathSegment
-        } ?: return
+        }
 
-        com.contextpulse.phase0.util.QrTriggerHandler.processQrPayload(this, rawKey)
+        val rawKey = if (data != null) {
+            val scheme = data.scheme ?: ""
+            val host = data.host ?: ""
+            val path = data.path ?: ""
+            when {
+                // Query param: e.g. https://sahirahmed.github.io/ContextPulse/?trigger=xyz
+                !data.getQueryParameter("trigger").isNullOrBlank() -> data.getQueryParameter("trigger")
+                !data.getQueryParameter("context").isNullOrBlank() -> data.getQueryParameter("context")
+                scheme == "contextpulse" && host == "trigger" -> data.lastPathSegment ?: path.removePrefix("/")
+                scheme == "contextpulse" -> data.getQueryParameter("trigger") ?: data.lastPathSegment ?: path.removePrefix("/")
+                (scheme == "https" || scheme == "http") && (host.contains("sahirahmed.github.io") || host.contains("sahir01ahmed.github.io")) -> {
+                    data.getQueryParameter("trigger") ?: data.getQueryParameter("context") ?: data.lastPathSegment
+                }
+                (scheme == "https" || scheme == "http") && path.contains("trigger") -> {
+                    data.getQueryParameter("trigger") ?: data.lastPathSegment
+                }
+                else -> data.getQueryParameter("trigger") ?: data.lastPathSegment
+            }
+        } else {
+            null
+        } ?: rawUriString ?: hardwareUid ?: return
+
+        com.contextpulse.phase0.util.QrTriggerHandler.processQrPayload(
+            context = this,
+            rawPayload = rawKey,
+            hardwareUid = hardwareUid
+        )
+
+        // Prevent re-processing the same deep link / NFC tap across configuration changes
+        intent.data = null
+        intent.removeExtra(android.nfc.NfcAdapter.EXTRA_NDEF_MESSAGES)
+        intent.removeExtra(android.nfc.NfcAdapter.EXTRA_ID)
+        intent.removeExtra(android.nfc.NfcAdapter.EXTRA_TAG)
     }
 }
 
@@ -212,7 +286,37 @@ fun ContextPulseMainScreen(
     val isAppAccessUnlocked by lockManager.isAppAccessUnlockedFlow.collectAsState()
     var showSnoozeLockDialog by remember { mutableStateOf(false) }
 
-    var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Tab(ContextPulseTab.HOME)) }
+    val appScreenSaver = remember {
+        Saver<AppScreen, String>(
+            save = { screen ->
+                when (screen) {
+                    is AppScreen.Tab -> "TAB:${screen.tab.name}"
+                    is AppScreen.EditContext -> "EDIT_CONTEXT:${screen.contextId}"
+                    is AppScreen.ConfigureTrigger -> "CONFIG_TRIGGER:${screen.triggerId}"
+                    AppScreen.ActivityHistory -> "HISTORY"
+                    AppScreen.Settings -> "SETTINGS"
+                }
+            },
+            restore = { saved ->
+                when {
+                    saved.startsWith("TAB:") -> {
+                        val tab = runCatching { ContextPulseTab.valueOf(saved.removePrefix("TAB:")) }
+                            .getOrDefault(ContextPulseTab.HOME)
+                        AppScreen.Tab(tab)
+                    }
+                    saved.startsWith("EDIT_CONTEXT:") -> AppScreen.EditContext(saved.removePrefix("EDIT_CONTEXT:"))
+                    saved.startsWith("CONFIG_TRIGGER:") -> AppScreen.ConfigureTrigger(saved.removePrefix("CONFIG_TRIGGER:"))
+                    saved == "HISTORY" -> AppScreen.ActivityHistory
+                    saved == "SETTINGS" -> AppScreen.Settings
+                    else -> AppScreen.Tab(ContextPulseTab.HOME)
+                }
+            }
+        )
+    }
+
+    var currentScreen by rememberSaveable(stateSaver = appScreenSaver) {
+        mutableStateOf<AppScreen>(AppScreen.Tab(ContextPulseTab.HOME))
+    }
 
     // First launch tour guide state
     val tourPrefs = remember { context.getSharedPreferences("contextpulse_tour_prefs", Context.MODE_PRIVATE) }
@@ -238,6 +342,7 @@ fun ContextPulseMainScreen(
     val rooms by roomRepository.rooms.collectAsState()
     val activeRoomId by roomRepository.activeRoomId.collectAsState()
     val activeRoom by roomRepository.activeRoom.collectAsState()
+    val activeRoomStartedAt by roomRepository.activeRoomStartedAt.collectAsState()
     val beacons by beaconRepository.beacons.collectAsState()
     val activationLogs by activationLogRepository.activationLogs.collectAsState()
     val permissionsState by permissionsRepository.state.collectAsState()
@@ -308,6 +413,13 @@ fun ContextPulseMainScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .then(
+                    if (currentScreen is AppScreen.Tab) {
+                        Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
             AnimatedContent(
                 targetState = currentScreen,
@@ -340,6 +452,7 @@ fun ContextPulseMainScreen(
                                 }
                                 HomeScreen(
                                     activeRoom = activeRoom,
+                                    activeStartedAt = activeRoomStartedAt,
                                     allRooms = rooms,
                                     triggersCount = beacons.size,
                                     isSnoozed = isSnoozed,
@@ -439,10 +552,20 @@ fun ContextPulseMainScreen(
                                     onEditContext = { contextItem ->
                                         currentScreen = AppScreen.EditContext(contextItem.id)
                                     },
-                                    onAttachTrigger = { triggerId, contextName ->
-                                        beaconRepository.attachBeaconToRoom(triggerId, contextName)
+                                    onAttachTrigger = { triggerId, contextId, contextName ->
                                         val trig = beacons.find { it.id == triggerId }
-                                        Toast.makeText(context, "Paired ${trig?.name ?: "trigger"} to $contextName", Toast.LENGTH_SHORT).show()
+                                        val attached = beaconRepository.attachBeaconToContext(triggerId, contextId, contextName)
+                                        if (attached) {
+                                            Toast.makeText(context, "Paired ${trig?.name ?: "trigger"} to $contextName", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            val locked = beaconRepository.getLockedTriggerTypeForContext(contextId, contextName)
+                                            val lockedLabel = locked?.getDisplayName() ?: "matching"
+                                            Toast.makeText(
+                                                context,
+                                                "$contextName only accepts $lockedLabel triggers",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
                                     },
                                     onDetachTrigger = { triggerId ->
                                         val trig = beacons.find { it.id == triggerId }
@@ -544,6 +667,9 @@ fun ContextPulseMainScreen(
                                         newIconName = newIconKey,
                                         newProfile = updatedProfile
                                     )
+                                    if (activeRoomId == targetRoom.id) {
+                                        com.contextpulse.phase0.system.ProfileActivationHelper.reapplyCurrentActive(context)
+                                    }
                                     currentScreen = AppScreen.Tab(ContextPulseTab.CONTEXTS)
                                     Toast.makeText(context, "Saved $newName context", Toast.LENGTH_SHORT).show()
                                 }

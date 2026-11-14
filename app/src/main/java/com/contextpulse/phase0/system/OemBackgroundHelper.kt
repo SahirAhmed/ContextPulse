@@ -17,10 +17,7 @@ object OemBackgroundHelper {
     private const val TAG = "OemBackgroundHelper"
 
     fun isXiaomiOrHyperOs(): Boolean {
-        val man = Build.MANUFACTURER.lowercase()
-        val brand = Build.BRAND.lowercase()
-        return man.contains("xiaomi") || man.contains("redmi") || man.contains("poco") ||
-                brand.contains("xiaomi") || brand.contains("redmi") || brand.contains("poco")
+        return XiaomiHyperOsHelper.isXiaomiOrHyperOs()
     }
 
     fun isSamsung(): Boolean {

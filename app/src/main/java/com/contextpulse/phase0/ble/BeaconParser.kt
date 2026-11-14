@@ -118,6 +118,22 @@ object BeaconParser {
                         estimatedDistanceMeters = calculateDistance(smoothedRssi, txPower - 41)
                     )
                 }
+                0x20 -> { // Eddystone-TLM (Telemetry: Battery voltage in mV, temperature, packet count)
+                    if (eddystoneData.size >= 4) {
+                        val batteryMv = ((eddystoneData[2].toInt() and 0xFF) shl 8) or (eddystoneData[3].toInt() and 0xFF)
+                        val batteryPct = batteryMvToPercentage(batteryMv)
+                        return BleBeaconInfo(
+                            macAddress = macAddress,
+                            name = name ?: "Eddystone-TLM ($batteryMv mV)",
+                            rawRssi = rawRssi,
+                            smoothedRssi = smoothedRssi,
+                            beaconType = BeaconType.EDDYSTONE_TLM,
+                            txPower = -59,
+                            estimatedDistanceMeters = calculateDistance(smoothedRssi, -59),
+                            batteryPercentage = batteryPct
+                        )
+                    }
+                }
             }
         }
 
@@ -142,6 +158,33 @@ object BeaconParser {
         val ratio = (txPower - rssi) / (10.0 * pathLossExponent)
         val distance = 10.0.pow(ratio).coerceIn(0.05, 50.0)
         return String.format(Locale.US, "%.2f", distance).toDoubleOrNull() ?: distance
+    }
+
+    /**
+     * Intercepts passive Eddystone-TLM (Service UUID 0xFEAA, Frame Type 0x20)
+     * to read raw battery millivolts and calculate percentage passively without maintaining a GATT connection.
+     * Returns Pair(millivolts, percentage).
+     */
+    fun parseEddystoneTlmBattery(scanRecord: ScanRecord?): Pair<Int, Int>? {
+        if (scanRecord == null) return null
+        val eddystoneData = scanRecord.getServiceData(EDDYSTONE_SERVICE_UUID) ?: return null
+        if (eddystoneData.size >= 4 && (eddystoneData[0].toInt() and 0xFF) == 0x20) {
+            val batteryMv = ((eddystoneData[2].toInt() and 0xFF) shl 8) or (eddystoneData[3].toInt() and 0xFF)
+            val batteryPct = batteryMvToPercentage(batteryMv) ?: return null
+            return Pair(batteryMv, batteryPct)
+        }
+        return null
+    }
+
+    /**
+     * Converts coin cell battery voltage (mV) to percentage (0 - 100%), or null if 0 mV / unsupported.
+     * Nominal 3.0V lithium coin cell (e.g. CR2032/CR2477) discharge curve:
+     * >= 3000 mV -> 100%, 2800 mV -> ~70%, 2500 mV -> ~20%, <= 2200 mV -> 0%.
+     */
+    fun batteryMvToPercentage(batteryMv: Int): Int? {
+        if (batteryMv <= 0) return null
+        val pct = ((batteryMv - 2200).toFloat() / (3000 - 2200)) * 100f
+        return pct.toInt().coerceIn(0, 100)
     }
 
     private fun bytesToUuidString(bytes: ByteArray): String {

@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -72,7 +74,6 @@ fun SettingsSubPageHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -112,6 +113,55 @@ fun SettingsSubPageHeader(
 }
 
 /**
+ * Shared container that pins sub-page headers safely below the system status bar so
+ * scrolled content never enters the notification/status bar region.
+ */
+@Composable
+private fun SettingsSubPageContainer(
+    category: String,
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val theme = LocalContextPulseTheme.current
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(theme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .displayCutoutPadding()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 860.dp)
+            ) {
+                SettingsSubPageHeader(
+                    category = category,
+                    title = title,
+                    onBack = onBack
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            content()
+        }
+    }
+}
+
+/**
  * Dedicated Sub-Page: Colour Profile & App Icon
  */
 @Composable
@@ -124,22 +174,21 @@ fun ColourProfileSubScreen(
     val theme = LocalContextPulseTheme.current
     val listState = rememberLazyListState()
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SettingsSubPageContainer(
+        category = "Appearance & Branding",
+        title = "Colour Profile & Icon",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "Appearance & Branding",
-                title = "Colour Profile & Icon",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
 
         item {
             Text(
@@ -247,6 +296,7 @@ fun ColourProfileSubScreen(
         }
     }
 }
+}
 
 /**
  * Dedicated Sub-Page: System Notifications
@@ -279,22 +329,21 @@ fun NotificationsSubScreen(
 
     val hasPostNotifications = permState.notificationsEnabled
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "Alerts & Logging",
+        title = "Notifications",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "Alerts & Logging",
-                title = "Notifications",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         if (!hasPostNotifications) {
             item {
@@ -473,6 +522,7 @@ fun NotificationsSubScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -494,22 +544,21 @@ fun BlockedAppGroupsSubScreen(
     var appGroupToEdit by remember { mutableStateOf<AppGroup?>(null) }
     var showAppGroupDialog by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "Profile Automations",
+        title = "Blocked App Groups",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "Profile Automations",
-                title = "Blocked App Groups",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         item {
             Text(
@@ -675,6 +724,7 @@ fun BlockedAppGroupsSubScreen(
                 )
             }
         }
+        }
     }
 
     if (showAppGroupDialog) {
@@ -711,22 +761,21 @@ fun ResetAppSubScreen(
     val listState = rememberLazyListState()
     var showConfirmDialog by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "System Management",
+        title = "Reset Application",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "System Management",
-                title = "Reset Application",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         item {
             Box(
@@ -836,6 +885,7 @@ fun ResetAppSubScreen(
                 }
             }
         }
+        }
     }
 
     if (showConfirmDialog) {
@@ -905,22 +955,21 @@ fun AboutAppSubScreen(
     val theme = LocalContextPulseTheme.current
     val listState = rememberLazyListState()
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "System Info",
+        title = "About ContextPulse",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "System Info",
-                title = "About ContextPulse",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         item {
             Box(
@@ -1001,6 +1050,7 @@ fun AboutAppSubScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -1029,22 +1079,21 @@ fun SecurityLockSubScreen(
     var pinError by remember { mutableStateOf<String?>(null) }
     var hasCopiedRecoveryCode by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "Privacy & Protection",
+        title = "Security & App Lock",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "Privacy & Protection",
-                title = "Security & App Lock",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         item {
             Box(
@@ -1291,6 +1340,7 @@ fun SecurityLockSubScreen(
                 }
             }
         }
+        }
     }
 
     if (showDisableVerifyPinDialog) {
@@ -1310,20 +1360,29 @@ fun SecurityLockSubScreen(
     }
 
     if (showSetPinDialog) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = {
-            if (generatedRecoveryCode == null) {
-                showSetPinDialog = false
-            }
-        }) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = {
+                if (generatedRecoveryCode == null) {
+                    showSetPinDialog = false
+                }
+            },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 520.dp)
+                    .padding(vertical = 12.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -1520,22 +1579,21 @@ fun BackgroundReliabilitySubScreen(
     val isRunning by com.contextpulse.phase0.ble.Phase0BleService.isServiceRunning.collectAsState()
     val isXiaomi = remember { com.contextpulse.phase0.system.OemBackgroundHelper.isXiaomiOrHyperOs() }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    SettingsSubPageContainer(
+        category = "BACKGROUND EXECUTION",
+        title = "Reliability & OEM Guide",
+        onBack = onBack
     ) {
-        item {
-            SettingsSubPageHeader(
-                category = "BACKGROUND EXECUTION",
-                title = "Reliability & OEM Guide",
-                onBack = onBack
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .widthIn(max = 860.dp)
+                .contextPulseLazyScrollbar(listState)
+                .padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
         // 1. Current Live Background Engine Status
         item {
@@ -1598,9 +1656,10 @@ fun BackgroundReliabilitySubScreen(
             }
         }
 
-        // 2. Xiaomi / HyperOS / MIUI Crucial Configuration Card
-        item {
-            Box(
+        // 2. Xiaomi / HyperOS / MIUI Crucial Configuration Card (Shown strictly on Xiaomi / Redmi / POCO devices)
+        if (isXiaomi) {
+            item {
+                Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(20.dp))
@@ -1761,6 +1820,7 @@ fun BackgroundReliabilitySubScreen(
                 }
             }
         }
+    }
 
         // 3. Stock Android & Samsung Battery Optimization Card
         item {
@@ -1808,6 +1868,7 @@ fun BackgroundReliabilitySubScreen(
                     }
                 }
             }
+        }
         }
     }
 }

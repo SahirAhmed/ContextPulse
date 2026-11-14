@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="76dp"
+    android:viewportWidth="320"
+    android:viewportHeight="76">
+    <!-- Outer Card -->
+    <path
+        android:fillColor="#141519"
+        android:strokeColor="#272932"
+        android:strokeWidth="2"
+        android:pathData="M18,2 L302,2 A16,16 0 0,1 318,18 L318,58 A16,16 0 0,1 302,74 L18,74 A16,16 0 0,1 2,58 L2,18 A16,16 0 0,1 18,2 Z" />
+    <!-- Brand badge -->
+    <path
+        android:fillColor="#FFDF36"
+        android:pathData="M20,21 L38,21 A7,7 0 0,1 45,28 L45,48 A7,7 0 0,1 38,55 L20,55 A7,7 0 0,1 13,48 L13,28 A7,7 0 0,1 20,21 Z" />
+    <path
+        android:fillColor="#101010"
+        android:pathData="M29,28 A10,10 0 1,0 29,48 A10,10 0 1,0 29,28 Z M29,33 A5,5 0 1,1 29,43 A5,5 0 1,1 29,33 Z" />
+    <!-- Slot 1 (Active) -->
+    <path
+        android:fillColor="#FFDF36"
+        android:pathData="M62,13 L122,13 A9,9 0 0,1 131,22 L131,54 A9,9 0 0,1 122,63 L62,63 A9,9 0 0,1 53,54 L53,22 A9,9 0 0,1 62,13 Z" />
+    <path android:fillColor="#101010" android:pathData="M72,30 L112,30 L112,36 L72,36 Z" />
+    <path android:fillColor="#38101010" android:pathData="M78,42 L106,42 L106,47 L78,47 Z" />
+    <!-- Slot 2 -->
+    <path
+        android:fillColor="#1F2128"
+        android:strokeColor="#272932"
+        android:strokeWidth="1.5"
+        android:pathData="M146,13 L206,13 A9,9 0 0,1 215,22 L215,54 A9,9 0 0,1 206,63 L146,63 A9,9 0 0,1 137,54 L137,22 A9,9 0 0,1 146,13 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M156,30 L196,30 L196,36 L156,36 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M164,42 L188,42 L188,47 L164,47 Z" />
+    <!-- Slot 3 -->
+    <path
+        android:fillColor="#1F2128"
+        android:strokeColor="#272932"
+        android:strokeWidth="1.5"
+        android:pathData="M230,13 L290,13 A9,9 0 0,1 299,22 L299,54 A9,9 0 0,1 290,63 L230,63 A9,9 0 0,1 221,54 L221,22 A9,9 0 0,1 230,13 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M240,30 L280,30 L280,36 L240,36 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M248,42 L272,42 L272,47 L248,47 Z" />
+    <!-- Settings dot -->
+    <path android:fillColor="#38BDF8" android:pathData="M308,34 A4,4 0 1,0 308,42 A4,4 0 1,0 308,34 Z" />
+</vector>

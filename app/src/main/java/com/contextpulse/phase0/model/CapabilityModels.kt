@@ -71,6 +71,7 @@ enum class BeaconType {
     ALTBEACON,
     EDDYSTONE_UID,
     EDDYSTONE_URL,
+    EDDYSTONE_TLM,
     GENERIC_MANUFACTURER
 }
 
@@ -88,6 +89,7 @@ data class BleBeaconInfo(
     val lastSeenMonotonicMs: Long = android.os.SystemClock.elapsedRealtime(),
     val isRegisteredRoomBeacon: Boolean = false,
     val assignedRoomName: String? = null,
+    val assignedRoomId: String? = null,
     val batteryPercentage: Int? = null
 )
 

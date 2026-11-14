@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 
 /**
- * Persists a history of context activations and deactivations (up to 100 entries)
+ * Persists a complete history of context activations and deactivations until cleared
  * and dispatches device notifications when Context Switch Notifications are enabled.
  */
 class ActivationLogRepository(context: Context) {
@@ -147,7 +147,7 @@ class ActivationLogRepository(context: Context) {
             triggerSource = triggerSource
         )
 
-        val updated = (listOf(entry) + _logs.value).take(MAX_LOG_ENTRIES)
+        val updated = listOf(entry) + _logs.value
         saveLogsInternal(updated)
 
         try {
@@ -187,7 +187,6 @@ class ActivationLogRepository(context: Context) {
     companion object {
         private const val PREFS_NAME = "contextpulse_activation_logs_v1"
         private const val KEY_LOGS_JSON = "activation_logs_json_v1"
-        private const val MAX_LOG_ENTRIES = 100
 
         @Volatile
         private var INSTANCE: ActivationLogRepository? = null

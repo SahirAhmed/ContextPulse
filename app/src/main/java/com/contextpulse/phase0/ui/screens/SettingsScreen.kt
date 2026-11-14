@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +58,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val theme = LocalContextPulseTheme.current
-    var currentSubScreen by remember { mutableStateOf(SettingsSubScreen.MAIN) }
+    var currentSubScreen by rememberSaveable { mutableStateOf(SettingsSubScreen.MAIN) }
+    val isXiaomiDevice = remember { com.contextpulse.phase0.system.XiaomiHyperOsHelper.isXiaomiOrHyperOs() }
     var showTestAppDialog by remember { mutableStateOf(false) }
 
     if (showTestAppDialog) {
@@ -162,22 +164,27 @@ private fun SettingsMainMenu(
 ) {
     val theme = LocalContextPulseTheme.current
     val listState = rememberLazyListState()
+    val isXiaomiDevice = remember { com.contextpulse.phase0.system.XiaomiHyperOsHelper.isXiaomiOrHyperOs() }
 
-    LazyColumn(
-        state = listState,
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .background(theme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .displayCutoutPadding()
     ) {
-        // Top Navigation Header
-        item {
+        // Pinned Top Navigation Header (stays safely below status bar)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
+                    .widthIn(max = 860.dp)
                     .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -215,6 +222,23 @@ private fun SettingsMainMenu(
                 }
             }
         }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 860.dp)
+                    .contextPulseLazyScrollbar(listState)
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
 
         // Setting Item 1: Colour Profile & App Icon
         item {
@@ -271,19 +295,23 @@ private fun SettingsMainMenu(
                 iconTint = theme.primary,
                 iconBg = theme.primary.copy(alpha = 0.15f),
                 title = "Background Reliability & OEM Guide",
-                subtitle = "Xiaomi HyperOS autostart, battery saver exemption & persistent execution",
+                subtitle = if (isXiaomiDevice) {
+                    "Xiaomi HyperOS autostart, battery saver exemption & persistent execution"
+                } else {
+                    "Android battery optimization exemption & persistent background execution"
+                },
                 onClick = { onNavigateTo(SettingsSubScreen.BACKGROUND_RELIABILITY) }
             )
         }
 
-        // Setting Item 6: Test App (System Diagnostics)
+        // Setting Item 6: Diagnostics & Testing Centre
         item {
             SettingsNavigationRow(
                 icon = Icons.Outlined.CheckCircle,
                 iconTint = theme.accent,
                 iconBg = theme.accent.copy(alpha = 0.15f),
-                title = "Test App",
-                subtitle = "Automated dry-run diagnostics for features, restrictions & permissions",
+                title = "Diagnostics & Testing Centre",
+                subtitle = "Automated functional assertions, system readiness & device tests",
                 onClick = onOpenTestApp
             )
         }
@@ -311,6 +339,8 @@ private fun SettingsMainMenu(
                 subtitle = "Version 1.0, system architecture & privacy policy",
                 onClick = { onNavigateTo(SettingsSubScreen.ABOUT) }
             )
+        }
+            }
         }
     }
 }

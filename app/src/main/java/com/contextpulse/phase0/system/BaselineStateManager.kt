@@ -26,7 +26,10 @@ data class RecoveryReport(
  * 4. Crash / Restart / Reboot: Recovers interrupted transitions safely.
  * 5. Staleness check: Guards against restoring outdated settings if the device was inactive for extended periods.
  */
-class BaselineStateManager(private val context: Context) {
+class BaselineStateManager(
+    private val context: Context,
+    customPrefsName: String? = null
+) {
 
     companion object {
         private const val TAG = "BaselineStateManager"
@@ -48,7 +51,7 @@ class BaselineStateManager(private val context: Context) {
         }
     }
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = context.getSharedPreferences(customPrefsName ?: PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _baselineSnapshot = MutableStateFlow<SystemSnapshot?>(null)
     val baselineSnapshot: StateFlow<SystemSnapshot?> = _baselineSnapshot.asStateFlow()

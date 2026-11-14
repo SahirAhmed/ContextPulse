@@ -202,17 +202,11 @@ object ActiveConfigSnapshotManager {
             SystemControllers.applyEyeComfort(context, false)
         }
 
-        // 4. Restore App Restrictions
-        if (appRestrictionsEnabled && restrictedPackages.isNotEmpty()) {
-            AppRestrictionMonitor.setRestrictedPackages(
-                packages = restrictedPackages,
-                roomName = activeRoomName
-            )
-            AppRestrictionMonitor.startContinuousMonitoring(context, 200L)
-        } else {
-            AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
-            AppRestrictionMonitor.stopContinuousMonitoring()
-        }
+        // 4. Clear preview app restrictions & budgets cleanly (step 7 reapplies exact active mode rules)
+        AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
+        AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
+        AppRestrictionMonitor.stopContinuousMonitoring()
+        FloatingTimerOverlayManager.clearBudgetOverlay(context)
 
         // 5. Restore Active Context in RoomProfileRepository
         val roomRepo = RoomProfileRepository.getInstance(context)
@@ -291,17 +285,20 @@ object ActiveConfigSnapshotManager {
                 context = context,
                 contextId = "preview_${mode.id}",
                 contextName = "$contextName (Preview)",
-                budgets = mode.appBudgets
+                budgets = mode.appBudgets,
+                modeId = mode.id
             )
             AppRestrictionMonitor.setRestrictedPackages(
                 packages = mode.restrictedApps.toSet(),
-                roomName = "$contextName (Preview)"
+                roomName = "$contextName (Preview)",
+                modeId = mode.id
             )
             AppRestrictionMonitor.startContinuousMonitoring(context, 200L)
         } else {
-            AppUsageBudgetManager.setActiveContextBudgets(context, "", "", emptyList())
+            AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
             AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
             AppRestrictionMonitor.stopContinuousMonitoring()
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
         }
 
         // Auto-Open App

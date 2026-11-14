@@ -12,21 +12,25 @@ object BeaconRegistry {
     private const val PREFS_NAME = "contextpulse_beacon_registry"
     private const val KEY_REGISTERED_BEACONS = "key_registered_beacons"
 
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun getPrefs(context: Context, customPrefsName: String? = null): SharedPreferences {
+        return context.getSharedPreferences(customPrefsName ?: PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     /**
      * Gets all currently registered room beacons.
-     * If empty on first launch, seeds with test room beacon definitions.
+     * If empty on first launch, seeds with test room beacon definitions (only for production storage).
      */
-    fun getRegisteredBeacons(context: Context): List<RoomBeaconDefinition> {
-        val prefs = getPrefs(context)
+    fun getRegisteredBeacons(context: Context, customPrefsName: String? = null): List<RoomBeaconDefinition> {
+        val prefs = getPrefs(context, customPrefsName)
         val jsonString = prefs.getString(KEY_REGISTERED_BEACONS, null)
         if (jsonString.isNullOrEmpty()) {
-            val defaults = getDefaultRooms()
-            saveRegisteredBeacons(context, defaults)
-            return defaults
+            if (customPrefsName == null) {
+                val defaults = getDefaultRooms()
+                saveRegisteredBeacons(context, defaults, null)
+                return defaults
+            } else {
+                return emptyList()
+            }
         }
 
         return try {
@@ -57,11 +61,11 @@ object BeaconRegistry {
             }
             list
         } catch (e: Exception) {
-            getDefaultRooms()
+            if (customPrefsName == null) getDefaultRooms() else emptyList()
         }
     }
 
-    fun saveRegisteredBeacons(context: Context, beacons: List<RoomBeaconDefinition>) {
+    fun saveRegisteredBeacons(context: Context, beacons: List<RoomBeaconDefinition>, customPrefsName: String? = null) {
         val jsonArray = JSONArray()
         for (b in beacons) {
             val obj = JSONObject().apply {
@@ -77,13 +81,13 @@ object BeaconRegistry {
             }
             jsonArray.put(obj)
         }
-        getPrefs(context).edit().putString(KEY_REGISTERED_BEACONS, jsonArray.toString()).apply()
+        getPrefs(context, customPrefsName).edit().putString(KEY_REGISTERED_BEACONS, jsonArray.toString()).apply()
     }
 
     /**
      * Registers a beacon for a room context.
-     * Supports MULTIPLE beacons per room (e.g. multiple beacons in a large living room or office).
-     * Only replaces if the exact same physical beacon (MAC or UUID/Major/Minor or Namespace/Instance) already exists.
+     * Supports MULTIPLE beacons per room.
+     * When customPrefsName is provided, operates strictly in isolated test storage.
      */
     fun registerBeacon(
         context: Context,
@@ -95,9 +99,10 @@ object BeaconRegistry {
         minor: Int? = null,
         namespace: String? = null,
         instance: String? = null,
-        beaconType: BeaconType = BeaconType.IBEACON
+        beaconType: BeaconType = BeaconType.IBEACON,
+        customPrefsName: String? = null
     ) {
-        val current = getRegisteredBeacons(context).toMutableList()
+        val current = getRegisteredBeacons(context, customPrefsName).toMutableList()
 
         // Only remove an existing beacon if it represents the identical physical beacon:
         // matching MAC address or matching full beacon identifier
@@ -126,22 +131,17 @@ object BeaconRegistry {
                 beaconType = beaconType
             )
         )
-        saveRegisteredBeacons(context, current)
+        saveRegisteredBeacons(context, current, customPrefsName)
     }
 
-    fun unregisterBeacon(context: Context, macAddress: String) {
-        val current = getRegisteredBeacons(context).toMutableList()
+    fun unregisterBeacon(context: Context, macAddress: String, customPrefsName: String? = null) {
+        val current = getRegisteredBeacons(context, customPrefsName).toMutableList()
         current.removeAll { it.macAddress.equals(macAddress, ignoreCase = true) }
-        saveRegisteredBeacons(context, current)
+        saveRegisteredBeacons(context, current, customPrefsName)
     }
 
     /**
      * Checks if a discovered device matches any registered room beacon.
-     * Matches on:
-     * 1. MAC address (case-insensitive)
-     * 2. iBeacon UUID + Major + Minor (if present)
-     * 3. Eddystone-UID Namespace + Instance or combined UUID string
-     * 4. Generic beacon matching on device address or name
      */
     fun findMatchingRoom(
         context: Context,
@@ -150,9 +150,10 @@ object BeaconRegistry {
         major: Int? = null,
         minor: Int? = null,
         namespace: String? = null,
-        instance: String? = null
+        instance: String? = null,
+        customPrefsName: String? = null
     ): RoomBeaconDefinition? {
-        val registered = getRegisteredBeacons(context)
+        val registered = getRegisteredBeacons(context, customPrefsName)
         return registered.find { room ->
             // 1. Match MAC address (case-insensitive)
             if (room.macAddress.isNotEmpty() && room.macAddress.equals(macAddress, ignoreCase = true)) {
@@ -160,10 +161,14 @@ object BeaconRegistry {
             }
 
             // 2. Match iBeacon / AltBeacon UUID + Major + Minor
-            if (uuid != null && room.uuid != null && room.uuid.equals(uuid, ignoreCase = true)) {
-                if (room.major == null || room.major == major) {
-                    if (room.minor == null || room.minor == minor) {
-                        return@find true
+            if (uuid != null && room.uuid != null) {
+                val cleanRoomUuid = room.uuid.replace("-", "").trim()
+                val cleanIncomingUuid = uuid.replace("-", "").trim()
+                if (cleanRoomUuid.equals(cleanIncomingUuid, ignoreCase = true)) {
+                    if (room.major == null || room.major == major) {
+                        if (room.minor == null || room.minor == minor) {
+                            return@find true
+                        }
                     }
                 }
             }

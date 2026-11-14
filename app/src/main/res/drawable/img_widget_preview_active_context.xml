@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="160dp"
+    android:viewportWidth="160"
+    android:viewportHeight="160">
+    <path
+        android:fillColor="#141519"
+        android:strokeColor="#FFDF36"
+        android:strokeWidth="2.5"
+        android:pathData="M20,3 L140,3 A17,17 0 0,1 157,20 L157,140 A17,17 0 0,1 140,157 L20,157 A17,17 0 0,1 3,140 L3,20 A17,17 0 0,1 20,3 Z" />
+    <!-- Status dot + header bar -->
+    <path android:fillColor="#FFDF36" android:pathData="M22,22 A5,5 0 1,0 22,32 A5,5 0 1,0 22,22 Z" />
+    <path android:fillColor="#FFDF36" android:pathData="M32,24 L98,24 L98,30 L32,30 Z" />
+    <!-- Mini logo -->
+    <path android:fillColor="#FFDF36" android:pathData="M126,18 L142,18 A4,4 0 0,1 146,22 L146,38 A4,4 0 0,1 142,42 L126,42 A4,4 0 0,1 122,38 L122,22 A4,4 0 0,1 126,18 Z" />
+    <!-- Context Name -->
+    <path android:fillColor="#FFFFFF" android:pathData="M18,74 L126,74 L126,86 L18,86 Z" />
+    <!-- Status subtitle -->
+    <path android:fillColor="#94A3B8" android:pathData="M18,100 L92,100 L92,107 L18,107 Z" />
+    <!-- Accent bottom pill -->
+    <path android:fillColor="#1F2128" android:pathData="M18,124 L88,124 A8,8 0 0,1 96,132 L96,132 A8,8 0 0,1 88,140 L18,140 A8,8 0 0,1 10,132 L10,132 A8,8 0 0,1 18,124 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M24,129 L82,129 L82,135 L24,135 Z" />
+</vector>

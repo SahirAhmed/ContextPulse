@@ -35,7 +35,7 @@ enum class BroadcastStatus {
 
     fun getDisplayName(): String = when (this) {
         BROADCASTING -> "Broadcasting"
-        LOW_BATTERY -> "Low Battery (<20%)"
+        LOW_BATTERY -> "Low Battery (<15%)"
         OFFLINE -> "Broadcast Stopped"
     }
 }
@@ -58,7 +58,7 @@ data class RegisteredBeacon(
     val assignedRoomName: String = "",
     val enterRssiThreshold: Int = -70,
     val exitRssiThreshold: Int = -85,
-    val batteryPercent: Int? = 100,
+    val batteryPercent: Int? = null,
     val rssi: Int = -50,
     val lastSeenMillis: Long? = System.currentTimeMillis(),
     val isReachable: Boolean = true,
@@ -67,8 +67,25 @@ data class RegisteredBeacon(
 ) {
     val nfcTagUid: String get() = nfcTagId
 
+    fun parseMajorMinor(): Pair<Int?, Int?> {
+        if (instanceOrMajorMinor.isBlank()) return Pair(null, null)
+        val parts = instanceOrMajorMinor.split('/', ':', ',').map { it.trim() }.filter { it.isNotEmpty() }
+        val major = parts.getOrNull(0)?.toIntOrNull()
+        val minor = parts.getOrNull(1)?.toIntOrNull()
+        return Pair(major, minor)
+    }
+
+    fun matchesIBeaconIdentity(uuid: String, major: Int, minor: Int): Boolean {
+        if (type != TriggerType.BLE_BEACON) return false
+        val cleanThisUuid = namespaceOrUuid.replace("-", "").trim()
+        val cleanTargetUuid = uuid.replace("-", "").trim()
+        if (!cleanThisUuid.equals(cleanTargetUuid, ignoreCase = true)) return false
+        val (thisMajor, thisMinor) = parseMajorMinor()
+        return thisMajor == major && thisMinor == minor
+    }
+
     fun isLowBattery(): Boolean {
-        return type == TriggerType.BLE_BEACON && batteryPercent != null && batteryPercent in 1..20
+        return type == TriggerType.BLE_BEACON && batteryPercent != null && batteryPercent in 0 until 15
     }
 
     fun hasFaultAlert(): Boolean {
@@ -129,7 +146,7 @@ data class RegisteredBeacon(
                 assignedRoomName = obj.optString("assignedRoomName", ""),
                 enterRssiThreshold = obj.optInt("enterRssiThreshold", -70),
                 exitRssiThreshold = obj.optInt("exitRssiThreshold", -85),
-                batteryPercent = if (obj.has("batteryPercent") && !obj.isNull("batteryPercent")) obj.getInt("batteryPercent") else 100,
+                batteryPercent = if (obj.has("batteryPercent") && !obj.isNull("batteryPercent")) obj.getInt("batteryPercent") else null,
                 rssi = obj.optInt("rssi", -50),
                 lastSeenMillis = if (obj.has("lastSeenMillis") && !obj.isNull("lastSeenMillis")) obj.getLong("lastSeenMillis") else null,
                 isReachable = obj.optBoolean("isReachable", true),

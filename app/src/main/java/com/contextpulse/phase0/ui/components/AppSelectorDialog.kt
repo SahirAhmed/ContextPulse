@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
 import com.contextpulse.phase0.repository.AppGroupRepository
 import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
@@ -154,14 +155,18 @@ fun AppSelectorDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = theme.surface,
             border = BorderStroke(1.dp, theme.border),
             shadowElevation = 20.dp,
             modifier = Modifier
-                .fillMaxWidth(0.96f)
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 640.dp)
                 .fillMaxHeight(0.85f)
         ) {
             Column(
@@ -504,14 +509,18 @@ fun SingleAppSelectorDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = theme.surface,
             border = BorderStroke(1.dp, theme.border),
             shadowElevation = 20.dp,
             modifier = Modifier
-                .fillMaxWidth(0.96f)
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 640.dp)
                 .fillMaxHeight(0.85f)
         ) {
             Column(
@@ -726,14 +735,18 @@ fun RestrictedAppsManagerDialog(
         list
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = theme.surface,
             border = BorderStroke(1.dp, theme.border),
             shadowElevation = 24.dp,
             modifier = Modifier
-                .fillMaxWidth(0.96f)
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 640.dp)
                 .fillMaxHeight(0.90f)
         ) {
             Column(

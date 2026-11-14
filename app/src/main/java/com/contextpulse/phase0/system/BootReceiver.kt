@@ -23,6 +23,17 @@ class BootReceiver : BroadcastReceiver() {
 
             // Start BLE foreground service only if permissions are present
             Phase0BleService.start(context)
+
+            // Recover any interrupted guided flash tests where Android permissions permit
+            try {
+                val pending = com.contextpulse.phase0.testing.GuidedTestRecoveryJournal.getPendingRecord(context)
+                if (pending != null) {
+                    val (success, msg) = com.contextpulse.phase0.testing.GuidedTestRecoveryJournal.attemptRestoration(context, pending)
+                    Log.i("BootReceiver", "Boot guided test recovery result ($success): $msg")
+                }
+            } catch (e: Throwable) {
+                Log.w("BootReceiver", "Error checking pending flash test recovery on boot", e)
+            }
         }
     }
 }

@@ -33,6 +33,7 @@ class AppInterceptorAccessibilityService : AccessibilityService() {
             val pkg = event.packageName?.toString() ?: return
             if (pkg == packageName) return
 
+            AppRestrictionMonitor.verifyCurrentScheduleStateIfNeeded(applicationContext)
             if (AppRestrictionMonitor.isPackageRestricted(applicationContext, pkg)) {
                 Log.w(TAG, "Restricted application detected via Accessibility: $pkg")
                 onAppIntercepted?.invoke(pkg)

@@ -75,15 +75,22 @@ fun PermissionsScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .contextPulseScrollbar(scrollState)
-            .padding(horizontal = 20.dp)
-            .padding(top = 8.dp, bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    BoxWithConstraints(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
+        val isWide = maxWidth >= 640.dp
+
+        Column(
+            modifier = Modifier
+                .widthIn(max = 1040.dp)
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .contextPulseScrollbar(scrollState)
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
         Spacer(modifier = Modifier.height(2.dp))
 
         // Pre-header
@@ -189,54 +196,6 @@ fun PermissionsScreen(
             )
         }
 
-        // 1. Location
-        DetailedPermissionCard(
-            icon = Icons.Outlined.LocationOn,
-            title = "Location Access",
-            subtitle = "Required by Android OS for Bluetooth Low Energy beacon scanning",
-            isGranted = state.locationEnabled,
-            onToggle = { granted ->
-                if (granted) {
-                    onRequestLocation()
-                } else {
-                    permissionsRepository.openAppSettings(context)
-                }
-            },
-            onOpenSettings = { permissionsRepository.openAppSettings(context) }
-        )
-
-        // 2. Bluetooth
-        DetailedPermissionCard(
-            icon = Icons.Default.Bluetooth,
-            title = "Bluetooth & Nearby Devices",
-            subtitle = "Scan and receive telemetry signals from room beacons",
-            isGranted = state.bluetoothEnabled,
-            onToggle = { granted ->
-                if (granted) {
-                    onRequestBluetooth()
-                } else {
-                    permissionsRepository.openAppSettings(context)
-                }
-            },
-            onOpenSettings = { permissionsRepository.openAppSettings(context) }
-        )
-
-        // 3. Notifications
-        DetailedPermissionCard(
-            icon = Icons.Outlined.Notifications,
-            title = "Notifications",
-            subtitle = "Send alerts for context changes, battery drops (<20%), and active status in status bar",
-            isGranted = state.notificationsEnabled,
-            onToggle = { granted ->
-                if (granted) {
-                    onRequestNotifications()
-                } else {
-                    permissionsRepository.openNotificationSettings(context)
-                }
-            },
-            onOpenSettings = { permissionsRepository.openNotificationSettings(context) }
-        )
-
         val lockManager = remember { com.contextpulse.phase0.security.AppLockManager.getInstance(context) }
         val isBiometricToggleActive by lockManager.isBiometricEnabled.collectAsState()
         val hasBiometricHardware = remember {
@@ -245,35 +204,89 @@ fun PermissionsScreen(
         val hasEnrolledBiometrics = remember {
             com.contextpulse.phase0.security.BiometricAuthHelper.hasEnrolledBiometrics(context)
         }
-        DetailedPermissionCard(
-            icon = Icons.Outlined.Fingerprint,
-            title = "Biometric & Fingerprint Security",
-            subtitle = if (hasEnrolledBiometrics && isBiometricToggleActive) {
-                "Fingerprint biometric unlock is enabled. Tap to open device security settings, or toggle off to use PIN only."
-            } else if (hasEnrolledBiometrics && !isBiometricToggleActive) {
-                "Fingerprint sensor is registered on device, but currently toggled off in ContextPulse. Toggle on to enable."
-            } else if (hasBiometricHardware) {
-                "Fingerprint sensor detected! Tap here to register your fingerprints in Android Settings."
-            } else {
-                "Biometric sensor detected on device. Tap to open device security settings."
+
+        val essentialCards: List<@Composable (Modifier) -> Unit> = listOf(
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.LocationOn,
+                    title = "Location Access",
+                    subtitle = "Required by Android OS for Bluetooth Low Energy beacon scanning",
+                    isGranted = state.locationEnabled,
+                    onToggle = { granted ->
+                        if (granted) onRequestLocation() else permissionsRepository.openAppSettings(context)
+                    },
+                    onOpenSettings = { permissionsRepository.openAppSettings(context) },
+                    modifier = cardMod
+                )
             },
-            isGranted = hasEnrolledBiometrics && isBiometricToggleActive,
-            onToggle = { enabled ->
-                if (enabled) {
-                    if (hasEnrolledBiometrics) {
-                        lockManager.setBiometricEnabled(true)
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Default.Bluetooth,
+                    title = "Bluetooth & Nearby Devices",
+                    subtitle = "Scan and receive telemetry signals from room beacons",
+                    isGranted = state.bluetoothEnabled,
+                    onToggle = { granted ->
+                        if (granted) onRequestBluetooth() else permissionsRepository.openAppSettings(context)
+                    },
+                    onOpenSettings = { permissionsRepository.openAppSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.Notifications,
+                    title = "Notifications",
+                    subtitle = "Send alerts for context changes, battery drops (<20%), and active status in status bar",
+                    isGranted = state.notificationsEnabled,
+                    onToggle = { granted ->
+                        if (granted) onRequestNotifications() else permissionsRepository.openNotificationSettings(context)
+                    },
+                    onOpenSettings = { permissionsRepository.openNotificationSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.Fingerprint,
+                    title = "Biometric & Fingerprint Security",
+                    subtitle = if (hasEnrolledBiometrics && isBiometricToggleActive) {
+                        "Fingerprint biometric unlock is enabled. Tap to open device security settings, or toggle off to use PIN only."
+                    } else if (hasEnrolledBiometrics && !isBiometricToggleActive) {
+                        "Fingerprint sensor is registered on device, but currently toggled off in ContextPulse. Toggle on to enable."
+                    } else if (hasBiometricHardware) {
+                        "Fingerprint sensor detected! Tap here to register your fingerprints in Android Settings."
                     } else {
-                        openBiometricSettings(context)
-                    }
-                } else {
-                    lockManager.setBiometricEnabled(false)
-                }
-                permissionsRepository.refreshPermissions()
-            },
-            onOpenSettings = {
-                openBiometricSettings(context)
+                        "Biometric sensor detected on device. Tap to open device security settings."
+                    },
+                    isGranted = hasEnrolledBiometrics && isBiometricToggleActive,
+                    onToggle = { enabled ->
+                        if (enabled) {
+                            if (hasEnrolledBiometrics) lockManager.setBiometricEnabled(true)
+                            else openBiometricSettings(context)
+                        } else {
+                            lockManager.setBiometricEnabled(false)
+                        }
+                        permissionsRepository.refreshPermissions()
+                    },
+                    onOpenSettings = { openBiometricSettings(context) },
+                    modifier = cardMod
+                )
             }
         )
+
+        if (isWide) {
+            essentialCards.chunked(2).forEach { pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    pair.forEach { card -> card(Modifier.weight(1f)) }
+                    if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        } else {
+            essentialCards.forEach { card -> card(Modifier.fillMaxWidth()) }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -291,109 +304,188 @@ fun PermissionsScreen(
             )
         }
 
-        // 4. Do Not Disturb Access
-        DetailedPermissionCard(
-            icon = Icons.Outlined.DoNotDisturbOn,
-            title = "Do Not Disturb (DND) Access",
-            subtitle = "Automatically toggle priority or silent DND mode when entering rooms",
-            isGranted = state.dndEnabled,
-            onToggle = { permissionsRepository.openDndSettings(context) },
-            onOpenSettings = { permissionsRepository.openDndSettings(context) }
+        val automationCards: List<@Composable (Modifier) -> Unit> = listOf(
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.DoNotDisturbOn,
+                    title = "Do Not Disturb (DND) Access",
+                    subtitle = "Automatically toggle priority or silent DND mode when entering rooms",
+                    isGranted = state.dndEnabled,
+                    onToggle = { permissionsRepository.openDndSettings(context) },
+                    onOpenSettings = { permissionsRepository.openDndSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.BrightnessMedium,
+                    title = "Modify System Settings",
+                    subtitle = "Adjust display brightness target when switching active room profiles",
+                    isGranted = state.writeSettingsEnabled,
+                    onToggle = { permissionsRepository.openWriteSettings(context) },
+                    onOpenSettings = { permissionsRepository.openWriteSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.BatterySaver,
+                    title = "Unrestricted Battery",
+                    subtitle = "Prevents Android from killing BLE proximity scans in the background",
+                    isGranted = state.batteryOptimizationIgnored,
+                    onToggle = { permissionsRepository.openBatteryOptimizationSettings(context) },
+                    onOpenSettings = { permissionsRepository.openBatteryOptimizationSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.HourglassEmpty,
+                    title = "App Usage Access",
+                    subtitle = "Detect foreground apps to enforce room distraction blocks",
+                    isGranted = state.usageStatsEnabled,
+                    onToggle = { permissionsRepository.openUsageAccessSettings(context) },
+                    onOpenSettings = { permissionsRepository.openUsageAccessSettings(context) },
+                    modifier = cardMod
+                )
+            },
+            { cardMod ->
+                DetailedPermissionCard(
+                    icon = Icons.Outlined.Layers,
+                    title = "Display Over Other Apps",
+                    subtitle = "Display distraction barrier popup when restricted apps are launched",
+                    isGranted = state.overlayEnabled,
+                    onToggle = { permissionsRepository.openOverlaySettings(context) },
+                    onOpenSettings = { permissionsRepository.openOverlaySettings(context) },
+                    modifier = cardMod
+                )
+            }
         )
 
-        // 5. System Settings Modification (Brightness)
-        DetailedPermissionCard(
-            icon = Icons.Outlined.BrightnessMedium,
-            title = "Modify System Settings",
-            subtitle = "Adjust display brightness target when switching active room profiles",
-            isGranted = state.writeSettingsEnabled,
-            onToggle = { permissionsRepository.openWriteSettings(context) },
-            onOpenSettings = { permissionsRepository.openWriteSettings(context) }
-        )
-
-        // 6. Battery Optimization Exemption
-        DetailedPermissionCard(
-            icon = Icons.Outlined.BatterySaver,
-            title = "Unrestricted Battery",
-            subtitle = "Prevents Android from killing BLE proximity scans in the background",
-            isGranted = state.batteryOptimizationIgnored,
-            onToggle = { permissionsRepository.openBatteryOptimizationSettings(context) },
-            onOpenSettings = { permissionsRepository.openBatteryOptimizationSettings(context) }
-        )
-
-        // 7. App Usage Access
-        DetailedPermissionCard(
-            icon = Icons.Outlined.HourglassEmpty,
-            title = "App Usage Access",
-            subtitle = "Detect foreground apps to enforce room distraction blocks",
-            isGranted = state.usageStatsEnabled,
-            onToggle = { permissionsRepository.openUsageAccessSettings(context) },
-            onOpenSettings = { permissionsRepository.openUsageAccessSettings(context) }
-        )
-
-        // 8. Display Over Other Apps (Overlay)
-        DetailedPermissionCard(
-            icon = Icons.Outlined.Layers,
-            title = "Display Over Other Apps",
-            subtitle = "Display distraction barrier popup when restricted apps are launched",
-            isGranted = state.overlayEnabled,
-            onToggle = { permissionsRepository.openOverlaySettings(context) },
-            onOpenSettings = { permissionsRepository.openOverlaySettings(context) }
-        )
+        if (isWide) {
+            automationCards.chunked(2).forEach { pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    pair.forEach { card -> card(Modifier.weight(1f)) }
+                    if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        } else {
+            automationCards.forEach { card -> card(Modifier.fillMaxWidth()) }
+        }
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // OEM Autostart & HyperOS / MIUI Background Guidance Card
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(theme.surface)
-                .border(1.dp, theme.accent.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                .clickable {
-                    com.contextpulse.phase0.system.OemBackgroundHelper.openAutostartSettings(context)
-                }
-                .padding(18.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(theme.accent.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
+        // OEM Autostart & Background Guidance Card (Adaptive to OEM)
+        val isXiaomi = remember { com.contextpulse.phase0.system.XiaomiHyperOsHelper.isXiaomiOrHyperOs() }
+        if (isXiaomi) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(theme.surface)
+                    .border(1.dp, theme.accent.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                    .clickable {
+                        com.contextpulse.phase0.system.OemBackgroundHelper.openAutostartSettings(context)
+                    }
+                    .padding(18.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.accent.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.BatterySaver,
+                                contentDescription = null,
+                                tint = theme.accent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "OEM Background & Autostart (Xiaomi / HyperOS)",
+                                color = theme.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Enable Autostart & No Restrictions to keep service running",
+                                color = theme.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                         Icon(
-                            imageVector = Icons.Outlined.BatterySaver,
-                            contentDescription = null,
+                            imageVector = Icons.Outlined.OpenInNew,
+                            contentDescription = "Open Settings",
                             tint = theme.accent,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "OEM Background & Autostart (Xiaomi / HyperOS)",
-                            color = theme.textPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Enable Autostart & No Restrictions to keep service running",
-                            color = theme.accent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(theme.surface)
+                    .border(1.dp, theme.border, RoundedCornerShape(18.dp))
+                    .clickable {
+                        com.contextpulse.phase0.system.OemBackgroundHelper.openBatteryOptimization(context)
+                    }
+                    .padding(18.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(theme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.BatterySaver,
+                                contentDescription = null,
+                                tint = theme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Battery Optimization Exemption",
+                                color = theme.textPrimary,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Set to 'Unrestricted' for continuous background triggers",
+                                color = theme.textSecondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Outlined.OpenInNew,
+                            contentDescription = "Open Settings",
+                            tint = theme.textSecondary,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Outlined.OpenInNew,
-                        contentDescription = "Open Settings",
-                        tint = theme.accent,
-                        modifier = Modifier.size(18.dp)
-                    )
                 }
             }
         }
@@ -428,6 +520,7 @@ fun PermissionsScreen(
                 )
             }
         }
+        }
     }
 }
 
@@ -438,12 +531,13 @@ fun DetailedPermissionCard(
     subtitle: String,
     isGranted: Boolean,
     onToggle: (Boolean) -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val theme = LocalContextPulseTheme.current
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .background(theme.surface)

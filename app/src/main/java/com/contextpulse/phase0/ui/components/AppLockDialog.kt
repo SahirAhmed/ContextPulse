@@ -7,8 +7,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Fingerprint
@@ -108,6 +110,7 @@ fun AppLockDialog(
             }
         },
         properties = DialogProperties(
+            usePlatformDefaultWidth = false,
             dismissOnBackPress = !isAppEntrance,
             dismissOnClickOutside = !isAppEntrance
         )
@@ -117,11 +120,14 @@ fun AppLockDialog(
             color = theme.surface,
             border = BorderStroke(1.dp, theme.border),
             shadowElevation = 20.dp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .widthIn(max = 480.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -302,17 +308,23 @@ fun AppLockDialog(
         var recoveryInput by remember { mutableStateOf("") }
         var recoveryError by remember { mutableStateOf<String?>(null) }
 
-        Dialog(onDismissRequest = { showForgotPinDialog = false }) {
+        Dialog(
+            onDismissRequest = { showForgotPinDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = BorderStroke(1.dp, theme.border),
                 shadowElevation = 24.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 480.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
                         .padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)

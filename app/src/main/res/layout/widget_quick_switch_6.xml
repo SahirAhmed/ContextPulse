@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="4dp">
+
+    <!-- Dynamic Theme-based Rounded Background -->
+    <ImageView
+        android:id="@+id/widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:contentDescription="Widget Background" />
+
+    <!-- Main Horizontal Container -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <!-- Brand Logo / Open App Button -->
+        <FrameLayout
+            android:id="@+id/widget_brand_container"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="6dp">
+
+            <ImageView
+                android:id="@+id/widget_logo"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_contextpulse_logo"
+                android:contentDescription="ContextPulse Logo" />
+        </FrameLayout>
+
+        <!-- 2x3 Grid of 6 Context Slots -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- Row 1: Slots 1..3 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="horizontal"
+                android:layout_marginBottom="4dp">
+
+                <!-- Slot 1 -->
+                <FrameLayout
+                    android:id="@+id/slot_1_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp">
+                    <ImageView android:id="@+id/slot_1_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_1_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_1_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 1" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_1_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Slot 2 -->
+                <FrameLayout
+                    android:id="@+id/slot_2_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp">
+                    <ImageView android:id="@+id/slot_2_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_2_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_2_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 2" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_2_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Slot 3 -->
+                <FrameLayout
+                    android:id="@+id/slot_3_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1">
+                    <ImageView android:id="@+id/slot_3_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_3_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_3_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 3" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_3_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- Row 2: Slots 4..6 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="horizontal">
+
+                <!-- Slot 4 -->
+                <FrameLayout
+                    android:id="@+id/slot_4_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp">
+                    <ImageView android:id="@+id/slot_4_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_4_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_4_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 4" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_4_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Slot 5 -->
+                <FrameLayout
+                    android:id="@+id/slot_5_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="4dp">
+                    <ImageView android:id="@+id/slot_5_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_5_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_5_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 5" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_5_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Slot 6 -->
+                <FrameLayout
+                    android:id="@+id/slot_6_container"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1">
+                    <ImageView android:id="@+id/slot_6_bg" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitXY" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center" android:padding="4dp">
+                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:id="@+id/slot_6_indicator" android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:visibility="gone" />
+                            <TextView android:id="@+id/slot_6_title" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Context 6" android:textSize="11.5sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end" />
+                        </LinearLayout>
+                        <TextView android:id="@+id/slot_6_status" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textSize="9sp" android:maxLines="1" android:ellipsize="end" />
+                    </LinearLayout>
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Configure / Re-select 6 contexts button -->
+        <FrameLayout
+            android:id="@+id/widget_btn_configure"
+            android:layout_width="28dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp">
+
+            <ImageView
+                android:id="@+id/widget_configure_icon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_widget_settings"
+                android:contentDescription="Configure Quick Switch 6 Widget" />
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

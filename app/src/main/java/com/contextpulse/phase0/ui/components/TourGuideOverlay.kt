@@ -5,8 +5,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
@@ -59,7 +61,7 @@ fun TourGuideOverlay(
                 bulletPoints = listOf(
                     "Active Context Card: Live status chips for Screen Brightness, Do Not Disturb, Eye Comfort, Blocked Apps, Auto-Opens, and Sticky Notes.",
                     "At a Glance Cards: Real-time counts of your configured Contexts and Triggers with direct one-tap navigation.",
-                    "Recent Context Activity: Interactive 7-day diary showing your history of context switches and transitions.",
+                    "Recent Context Activity: Interactive diary showing your history of context switches and transitions until cleared.",
                     "Snooze: Tap the Snooze button in the top header to temporarily pause all automations without deactivating."
                 ),
                 icon = Icons.Outlined.Home
@@ -136,11 +138,15 @@ fun TourGuideOverlay(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.72f))
             .clickable(enabled = true, onClick = {})
-            .padding(horizontal = 20.dp, vertical = 32.dp),
+            .systemBarsPadding()
+            .displayCutoutPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 560.dp),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = theme.surface),
             border = BorderStroke(1.5.dp, theme.primary)
@@ -148,6 +154,7 @@ fun TourGuideOverlay(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp)
             ) {
                 Row(

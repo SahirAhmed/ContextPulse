@@ -2,4 +2,7 @@
     <string name="app_name">ContextPulse</string>
     <string name="ble_service_notification_title">ContextPulse Feasibility Engine Active</string>
     <string name="ble_service_notification_desc">Scanning for BLE beacons and evaluating context triggers</string>
+    <string name="widget_quick_switch_3">Quick Switch Context (3)</string>
+    <string name="widget_quick_switch_6">Quick Switch Context (6)</string>
+    <string name="widget_active_context">Active Context</string>
 </resources>

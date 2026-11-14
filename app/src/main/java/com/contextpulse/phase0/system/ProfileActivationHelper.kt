@@ -110,7 +110,8 @@ object ProfileActivationHelper {
             SystemControllers.applyEyeComfort(context, false)
             AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
             AppRestrictionMonitor.stopContinuousMonitoring()
-            AppUsageBudgetManager.setActiveContextBudgets(context, "", "", emptyList())
+            AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
             ActiveConfigSnapshotManager.captureCurrentActive(context)
             ModeScheduleManager.cancelBoundaryAlarm(context)
             actLog.logActivation(
@@ -160,8 +161,10 @@ object ProfileActivationHelper {
             SystemControllers.restoreBrightness(context)
             SystemControllers.restoreDnd(context)
             SystemControllers.applyEyeComfort(context, false)
+            AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
             AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
             AppRestrictionMonitor.stopContinuousMonitoring()
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
             return
         }
 
@@ -194,17 +197,20 @@ object ProfileActivationHelper {
                     context = context,
                     contextId = activeRoom.id,
                     contextName = activeRoom.name,
-                    budgets = activeMode.appBudgets
+                    budgets = activeMode.appBudgets,
+                    modeId = activeMode.id
                 )
                 AppRestrictionMonitor.setRestrictedPackages(
                     packages = activeMode.restrictedApps.toSet(),
-                    roomName = activeRoom.name
+                    roomName = activeRoom.name,
+                    modeId = activeMode.id
                 )
                 AppRestrictionMonitor.startContinuousMonitoring(context, 200L)
             } else {
-                AppUsageBudgetManager.setActiveContextBudgets(context, "", "", emptyList())
+                AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
                 AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
                 AppRestrictionMonitor.stopContinuousMonitoring()
+                FloatingTimerOverlayManager.clearBudgetOverlay(context)
             }
 
             ModeScheduleManager.scheduleNextBoundaryAlarm(context)
@@ -212,9 +218,10 @@ object ProfileActivationHelper {
             SystemControllers.restoreBrightness(context)
             SystemControllers.restoreDnd(context)
             SystemControllers.applyEyeComfort(context, false)
-            AppUsageBudgetManager.setActiveContextBudgets(context, "", "", emptyList())
+            AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
             AppRestrictionMonitor.setRestrictedPackages(emptySet(), null)
             AppRestrictionMonitor.stopContinuousMonitoring()
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
             ModeScheduleManager.cancelBoundaryAlarm(context)
         }
     }

@@ -165,16 +165,25 @@ fun EditContextScreen(
 
     // Add Mode Dialog with Day of Week and Timeframe selection
     if (showAddModeDialog) {
-        Dialog(onDismissRequest = { showAddModeDialog = false }) {
+        Dialog(
+            onDismissRequest = { showAddModeDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = theme.surface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, theme.border),
                 shadowElevation = 16.dp,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 560.dp)
+                    .padding(vertical = 12.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(22.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -358,21 +367,25 @@ fun EditContextScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
+    Column(
         modifier = modifier
             .fillMaxSize()
-            .contextPulseLazyScrollbar(listState)
-            .padding(horizontal = 20.dp),
-        contentPadding = PaddingValues(bottom = 36.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .background(theme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .displayCutoutPadding()
     ) {
-        // Top Header - strictly aligned with ContextPulse top bar
-        item {
+        // Pinned Top Header - remains stationary outside scrollable LazyColumn
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
+                    .widthIn(max = 900.dp)
                     .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -405,11 +418,30 @@ fun EditContextScreen(
                         text = "Edit ${contextItem.name}",
                         color = theme.textPrimary,
                         fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
         }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 900.dp)
+                    .contextPulseLazyScrollbar(listState)
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(top = 6.dp, bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
 
         // Section 1: Basic Context Information
         item {
@@ -1011,7 +1043,9 @@ fun EditContextScreen(
                 Text("Save Context Changes", fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
         }
+        }
     }
+}
 }
 
 @Composable
@@ -1177,7 +1211,8 @@ fun ConfigureModeDialog(
             shadowElevation = 24.dp,
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .fillMaxHeight(0.88f)
+                .widthIn(max = 600.dp)
+                .fillMaxHeight(0.9f)
         ) {
             Column(
                 modifier = Modifier

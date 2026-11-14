@@ -73,8 +73,6 @@ fun QrScannerDialog(
 
     var isTorchOn by remember { mutableStateOf(false) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
-    var showManualInput by remember { mutableStateOf(false) }
-    var manualText by remember { mutableStateOf("") }
     var isProcessing by remember { mutableStateOf(false) }
 
     Dialog(
@@ -92,7 +90,7 @@ fun QrScannerDialog(
             color = Color.Transparent
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (hasCameraPermission && !showManualInput) {
+                if (hasCameraPermission) {
                     // Camera Preview
                     AndroidView(
                         factory = { ctx ->
@@ -224,7 +222,7 @@ fun QrScannerDialog(
                             )
                         }
                     }
-                } else if (!hasCameraPermission) {
+                } else {
                     // Camera Permission Request Screen
                     Column(
                         modifier = Modifier
@@ -284,94 +282,10 @@ fun QrScannerDialog(
                         ) {
                             Text("Grant Camera Permission", fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
                         }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        OutlinedButton(
-                            onClick = { showManualInput = true },
-                            border = BorderStroke(1.dp, theme.border),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Outlined.Keyboard, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Enter Code Manually", color = theme.textPrimary, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                } else {
-                    // Manual Input Entry Screen
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "Enter Room Code / Link",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Type or paste a Room name (e.g. Work, Sleep, Bedroom), Trigger ID, or ContextPulse deep link:",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        OutlinedTextField(
-                            value = manualText,
-                            onValueChange = { manualText = it },
-                            placeholder = { Text("e.g. Work or contextpulse://trigger/work", color = theme.textSecondary.copy(alpha = 0.5f)) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = theme.primary,
-                                unfocusedBorderColor = theme.border,
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        Button(
-                            onClick = {
-                                if (manualText.isNotBlank()) {
-                                    onQrScanned(manualText.trim())
-                                }
-                            },
-                            enabled = manualText.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = theme.primary,
-                                contentColor = theme.onPrimary
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            Text("Activate Context", fontWeight = FontWeight.Bold)
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        TextButton(onClick = { showManualInput = false }) {
-                            Text("Switch back to Camera Scanner", color = theme.primary)
-                        }
                     }
                 }
 
-                // Top Bar with Close, Torch, and Manual switch
+                // Top Bar with Close and Torch
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -381,7 +295,7 @@ fun QrScannerDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Flashlight toggle
-                    if (hasCameraPermission && !showManualInput) {
+                    if (hasCameraPermission) {
                         IconButton(
                             onClick = {
                                 isTorchOn = !isTorchOn
@@ -403,39 +317,20 @@ fun QrScannerDialog(
                         Spacer(modifier = Modifier.size(40.dp))
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (hasCameraPermission && !showManualInput) {
-                            IconButton(
-                                onClick = { showManualInput = true },
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x88000000))
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Keyboard,
-                                    contentDescription = "Manual Code",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
-                        // Close button
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x88000000))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    // Close button
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x88000000))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }

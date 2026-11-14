@@ -15,11 +15,14 @@ import java.util.UUID
 /**
  * Persists user-created Contexts (Rooms) and their automation Modes in SharedPreferences.
  */
-class RoomProfileRepository(context: Context) {
+class RoomProfileRepository(
+    context: Context,
+    customPrefsName: String? = null
+) {
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(customPrefsName ?: PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _rooms = MutableStateFlow<List<RoomItem>>(emptyList())
     val rooms: StateFlow<List<RoomItem>> = _rooms.asStateFlow()
@@ -29,6 +32,9 @@ class RoomProfileRepository(context: Context) {
 
     private val _activeRoomId = MutableStateFlow<String?>(null)
     val activeRoomId: StateFlow<String?> = _activeRoomId.asStateFlow()
+
+    private val _activeRoomStartedAt = MutableStateFlow<Long?>(null)
+    val activeRoomStartedAt: StateFlow<Long?> = _activeRoomStartedAt.asStateFlow()
 
     init {
         loadRooms()
@@ -45,6 +51,7 @@ class RoomProfileRepository(context: Context) {
             _rooms.value = emptyList()
             _activeRoom.value = null
             _activeRoomId.value = null
+            reconcileActiveContextTimer(null)
             return
         }
 
@@ -56,6 +63,7 @@ class RoomProfileRepository(context: Context) {
                 val id = obj.getString("id")
                 val name = obj.getString("name")
                 val subtitle = obj.optString("subtitle", "")
+                val iconName = obj.optString("iconName", "meeting_room").ifBlank { "meeting_room" }
                 val isActive = obj.optBoolean("isActive", false)
 
                 val profileObj = obj.optJSONObject("profile")
@@ -134,6 +142,7 @@ class RoomProfileRepository(context: Context) {
                         id = id,
                         name = name,
                         subtitle = subtitle,
+                        iconName = iconName,
                         isActive = isActive,
                         profile = profile
                     )
@@ -143,6 +152,7 @@ class RoomProfileRepository(context: Context) {
             val currentActive = parsedRooms.find { it.isActive }
             _activeRoom.value = currentActive
             _activeRoomId.value = currentActive?.id
+            reconcileActiveContextTimer(currentActive?.id)
         } catch (e: Exception) {
             seedDefaultRooms()
         }
@@ -189,6 +199,7 @@ class RoomProfileRepository(context: Context) {
             obj.put("id", room.id)
             obj.put("name", room.name)
             obj.put("subtitle", room.subtitle)
+            obj.put("iconName", room.iconName.ifBlank { "meeting_room" })
             obj.put("isActive", room.isActive)
 
             val syncedProfile = room.profile.syncFromModes()
@@ -222,11 +233,12 @@ class RoomProfileRepository(context: Context) {
             jsonArray.put(obj)
         }
 
-        prefs.edit().putString(KEY_ROOMS_JSON, jsonArray.toString()).apply()
+        prefs.edit().putString(KEY_ROOMS_JSON, jsonArray.toString()).commit()
         _rooms.value = updatedRooms
         val currentActive = updatedRooms.find { it.isActive }
         _activeRoom.value = currentActive
         _activeRoomId.value = currentActive?.id
+        reconcileActiveContextTimer(currentActive?.id)
         com.contextpulse.phase0.widget.ContextPulseWidgetProvider.updateAllWidgets(appContext)
 
         // Whenever room profiles or mode schedules are saved or modified:
@@ -387,9 +399,37 @@ class RoomProfileRepository(context: Context) {
         saveRoomsInternal(emptyList())
     }
 
+    private fun reconcileActiveContextTimer(currentActiveId: String?) {
+        if (currentActiveId.isNullOrBlank()) {
+            if (prefs.contains(KEY_ACTIVE_CONTEXT_TRACKED_ID) || prefs.contains(KEY_ACTIVE_CONTEXT_STARTED_AT)) {
+                prefs.edit()
+                    .remove(KEY_ACTIVE_CONTEXT_TRACKED_ID)
+                    .remove(KEY_ACTIVE_CONTEXT_STARTED_AT)
+                    .commit()
+            }
+            _activeRoomStartedAt.value = null
+            return
+        }
+
+        val trackedId = prefs.getString(KEY_ACTIVE_CONTEXT_TRACKED_ID, null)
+        val trackedStart = prefs.getLong(KEY_ACTIVE_CONTEXT_STARTED_AT, 0L)
+        if (trackedId == currentActiveId && trackedStart > 0L) {
+            _activeRoomStartedAt.value = trackedStart
+        } else {
+            val now = System.currentTimeMillis()
+            prefs.edit()
+                .putString(KEY_ACTIVE_CONTEXT_TRACKED_ID, currentActiveId)
+                .putLong(KEY_ACTIVE_CONTEXT_STARTED_AT, now)
+                .commit()
+            _activeRoomStartedAt.value = now
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "contextpulse_room_profiles_v1"
         private const val KEY_ROOMS_JSON = "rooms_json_v1"
+        private const val KEY_ACTIVE_CONTEXT_TRACKED_ID = "active_context_tracked_id_v1"
+        private const val KEY_ACTIVE_CONTEXT_STARTED_AT = "active_context_started_at_v1"
 
         @Volatile
         private var INSTANCE: RoomProfileRepository? = null

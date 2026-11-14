@@ -351,19 +351,7 @@ class Phase0BleService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Notification Action 1: Snooze / Resume toggle
-        val actionIntent = Intent(this, Phase0BleService::class.java).apply {
-            action = if (isSnoozed) ACTION_CANCEL_SNOOZE else ACTION_START_SNOOZE_15
-        }
-        val actionPendingIntent = PendingIntent.getService(
-            this,
-            1,
-            actionIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val actionTitle = if (isSnoozed) "Resume Automations" else "Snooze (15m)"
-
-        // Notification Action 2: Open App
+        // Notification Action: Open App
         val openAppPendingIntent = PendingIntent.getActivity(
             this,
             2,
@@ -397,20 +385,30 @@ class Phase0BleService : Service() {
             }
         }
 
-        return NotificationCompat.Builder(this, Phase0Application.CHANNEL_BLE_SERVICE)
+        val notificationBuilder = NotificationCompat.Builder(this, Phase0Application.CHANNEL_BLE_SERVICE)
             .setContentTitle(title)
             .setContentText(body)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(tapPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(
-                if (isSnoozed) android.R.drawable.ic_media_play else android.R.drawable.ic_lock_idle_alarm,
-                actionTitle,
-                actionPendingIntent
-            )
             .addAction(android.R.drawable.ic_menu_view, "Open App", openAppPendingIntent)
-            .build()
+
+        // If snooze is actively running, allow user to resume automations early
+        if (isSnoozed) {
+            val resumeIntent = Intent(this, Phase0BleService::class.java).apply {
+                action = ACTION_CANCEL_SNOOZE
+            }
+            val resumePendingIntent = PendingIntent.getService(
+                this,
+                1,
+                resumeIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            notificationBuilder.addAction(android.R.drawable.ic_media_play, "Resume Automations", resumePendingIntent)
+        }
+
+        return notificationBuilder.build()
     }
 
     /**
@@ -618,17 +616,37 @@ class Phase0BleService : Service() {
         )
 
         val finalInfo = rawBeaconInfo.copy(
-            isRegisteredRoomBeacon = matchingRoom != null,
-            assignedRoomName = matchingRoom?.roomName
+            isRegisteredRoomBeacon = matchingRoom != null && matchingRoom.roomId.isNotBlank(),
+            assignedRoomName = matchingRoom?.roomName,
+            assignedRoomId = matchingRoom?.roomId
         )
 
         allDevicesMap[mac] = finalInfo
         _allDiscoveredDevices.value = allDevicesMap.values.toList().sortedByDescending { it.smoothedRssi }
 
-        // Low battery notification check (< 15%)
-        val battery = finalInfo.batteryPercentage
-        if (battery != null && battery < 15) {
-            val displayName = finalInfo.assignedRoomName ?: finalInfo.name ?: "BLE Beacon ($mac)"
+        // Passive Eddystone-TLM battery interception (Frame Type 0x20)
+        val tlmData = BeaconParser.parseEddystoneTlmBattery(result.scanRecord)
+        val liveBattery = tlmData?.second ?: finalInfo.batteryPercentage
+
+        // Continuously expose live RSSI and passive battery to BeaconRepository for visual signal indicator
+        val beaconRepo = BeaconRepository.getInstance(this)
+        beaconRepo.updateBeaconTelemetry(
+            macAddress = mac,
+            rssi = rawRssi,
+            batteryPercent = liveBattery,
+            isReachable = true
+        )
+
+        // Low battery notification check (< 15%) strictly for registered BLE beacons
+        val registeredTrigger = beaconRepo.beacons.value.find {
+            it.type == com.contextpulse.phase0.model.TriggerType.BLE_BEACON &&
+                it.macAddress.equals(mac, ignoreCase = true)
+        }
+        val battery = liveBattery
+        if (registeredTrigger != null && battery != null && battery < 15) {
+            val displayName = registeredTrigger.name.ifBlank {
+                finalInfo.assignedRoomName ?: finalInfo.name ?: "BLE Beacon ($mac)"
+            }
             try {
                 com.contextpulse.phase0.system.ContextPulseNotificationManager.getInstance(this)
                     .notifyLowBeaconBattery(displayName, battery)
@@ -637,8 +655,8 @@ class Phase0BleService : Service() {
             }
         }
 
-        // ONLY registered room beacons are eligible for active room winner selection
-        if (matchingRoom != null) {
+        // ONLY registered room beacons with valid roomId are eligible for active room winner selection
+        if (matchingRoom != null && matchingRoom.roomId.isNotBlank()) {
             registeredRoomsMap[mac] = finalInfo
             val activeRoomsList = registeredRoomsMap.values.toList().sortedByDescending { it.smoothedRssi }
             _registeredRoomBeacons.value = activeRoomsList
@@ -649,15 +667,18 @@ class Phase0BleService : Service() {
                 log("Room context changed -> Active: ${winner?.assignedRoomName ?: winner?.name ?: "None"} (${winner?.macAddress}) [${winner?.smoothedRssi?.toInt()} dBm]")
                 _activeRoomBeacon.value = winner
 
-                // BRIDGE TO CONTEXT LAYER: If winning beacon changed, trigger context activation
+                // BRIDGE TO CONTEXT LAYER: If winning beacon changed, trigger context activation via stable roomId
                 if (winner != null) {
-                    val targetName = winner.assignedRoomName ?: winner.name
+                    val targetRoomId = winner.assignedRoomId
                     val roomRepo = RoomProfileRepository.getInstance(applicationContext)
-                    val targetRoom = roomRepo.rooms.value.find {
-                        it.name.equals(targetName, ignoreCase = true) || it.id.equals(targetName, ignoreCase = true)
+                    val targetRoom = if (!targetRoomId.isNullOrBlank()) {
+                        roomRepo.rooms.value.find { it.id == targetRoomId }
+                            ?: roomRepo.rooms.value.find { it.name.equals(winner.assignedRoomName, ignoreCase = true) }
+                    } else {
+                        null
                     }
                     if (targetRoom != null && targetRoom.id != roomRepo.activeRoomId.value) {
-                        log("Triggering context activation for '${targetRoom.name}' via BLE Beacon (${winner.macAddress})")
+                        log("Triggering context activation for '${targetRoom.name}' (ID: ${targetRoom.id}) via BLE Beacon (${winner.macAddress})")
                         ProfileActivationHelper.activateProfile(
                             context = applicationContext,
                             roomId = targetRoom.id,

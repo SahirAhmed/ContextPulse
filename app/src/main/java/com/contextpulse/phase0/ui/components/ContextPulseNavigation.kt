@@ -82,7 +82,11 @@ fun ContextPulseHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                )
+            )
             .padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -185,7 +189,11 @@ fun ContextPulseTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .windowInsetsPadding(
+                WindowInsets.statusBars.union(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                )
+            )
             .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -321,12 +329,18 @@ fun ContextPulseBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .windowInsetsPadding(
+                WindowInsets.navigationBars.union(
+                    WindowInsets.displayCutout.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+                )
+            )
+            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 600.dp)
                 .height(68.dp)
                 .clip(RoundedCornerShape(34.dp))
                 .background(theme.surface)

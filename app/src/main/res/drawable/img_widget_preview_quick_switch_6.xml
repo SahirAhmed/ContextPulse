@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="148dp"
+    android:viewportWidth="320"
+    android:viewportHeight="148">
+    <!-- Outer Card -->
+    <path
+        android:fillColor="#141519"
+        android:strokeColor="#272932"
+        android:strokeWidth="2"
+        android:pathData="M18,2 L302,2 A16,16 0 0,1 318,18 L318,130 A16,16 0 0,1 302,146 L18,146 A16,16 0 0,1 2,130 L2,18 A16,16 0 0,1 18,2 Z" />
+    <!-- Brand badge -->
+    <path
+        android:fillColor="#FFDF36"
+        android:pathData="M20,57 L38,57 A7,7 0 0,1 45,64 L45,84 A7,7 0 0,1 38,91 L20,91 A7,7 0 0,1 13,84 L13,64 A7,7 0 0,1 20,57 Z" />
+    <path
+        android:fillColor="#101010"
+        android:pathData="M29,64 A10,10 0 1,0 29,84 A10,10 0 1,0 29,64 Z M29,69 A5,5 0 1,1 29,79 A5,5 0 1,1 29,69 Z" />
+    <!-- Row 1 Slot 1 (Active) -->
+    <path android:fillColor="#FFDF36" android:pathData="M62,14 L122,14 A9,9 0 0,1 131,23 L131,61 A9,9 0 0,1 122,70 L62,70 A9,9 0 0,1 53,61 L53,23 A9,9 0 0,1 62,14 Z" />
+    <path android:fillColor="#101010" android:pathData="M72,33 L112,33 L112,39 L72,39 Z" />
+    <path android:fillColor="#38101010" android:pathData="M78,45 L106,45 L106,50 L78,50 Z" />
+    <!-- Row 1 Slot 2 -->
+    <path android:fillColor="#1F2128" android:strokeColor="#272932" android:strokeWidth="1.5" android:pathData="M146,14 L206,14 A9,9 0 0,1 215,23 L215,61 A9,9 0 0,1 206,70 L146,70 A9,9 0 0,1 137,61 L137,23 A9,9 0 0,1 146,14 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M156,33 L196,33 L196,39 L156,39 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M164,45 L188,45 L188,50 L164,50 Z" />
+    <!-- Row 1 Slot 3 -->
+    <path android:fillColor="#1F2128" android:strokeColor="#272932" android:strokeWidth="1.5" android:pathData="M230,14 L290,14 A9,9 0 0,1 299,23 L299,61 A9,9 0 0,1 290,70 L230,70 A9,9 0 0,1 221,61 L221,23 A9,9 0 0,1 230,14 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M240,33 L280,33 L280,39 L240,39 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M248,45 L272,45 L272,50 L248,50 Z" />
+    <!-- Row 2 Slot 4 -->
+    <path android:fillColor="#1F2128" android:strokeColor="#272932" android:strokeWidth="1.5" android:pathData="M62,78 L122,78 A9,9 0 0,1 131,87 L131,125 A9,9 0 0,1 122,134 L62,134 A9,9 0 0,1 53,125 L53,87 A9,9 0 0,1 62,78 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M72,97 L112,97 L112,103 L72,103 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M80,109 L104,109 L104,114 L80,114 Z" />
+    <!-- Row 2 Slot 5 -->
+    <path android:fillColor="#1F2128" android:strokeColor="#272932" android:strokeWidth="1.5" android:pathData="M146,78 L206,78 A9,9 0 0,1 215,87 L215,125 A9,9 0 0,1 206,134 L146,134 A9,9 0 0,1 137,125 L137,87 A9,9 0 0,1 146,78 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M156,97 L196,97 L196,103 L156,103 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M164,109 L188,109 L188,114 L164,114 Z" />
+    <!-- Row 2 Slot 6 -->
+    <path android:fillColor="#1F2128" android:strokeColor="#272932" android:strokeWidth="1.5" android:pathData="M230,78 L290,78 A9,9 0 0,1 299,87 L299,125 A9,9 0 0,1 290,134 L230,134 A9,9 0 0,1 221,125 L221,87 A9,9 0 0,1 230,78 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M240,97 L280,97 L280,103 L240,103 Z" />
+    <path android:fillColor="#38BDF8" android:pathData="M248,109 L272,109 L272,114 L248,114 Z" />
+    <!-- Settings dot -->
+    <path android:fillColor="#38BDF8" android:pathData="M308,70 A4,4 0 1,0 308,78 A4,4 0 1,0 308,70 Z" />
+</vector>

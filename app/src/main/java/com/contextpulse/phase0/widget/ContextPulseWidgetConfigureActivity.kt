@@ -40,6 +40,10 @@ import com.contextpulse.phase0.ui.theme.LocalContextPulseTheme
 
 class ContextPulseWidgetConfigureActivity : ComponentActivity() {
 
+    companion object {
+        const val EXTRA_MAX_SLOTS = "EXTRA_MAX_SLOTS"
+    }
+
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,6 +61,8 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
             )
         }
 
+        val maxSlots = resolveMaxSlots(extras?.getInt(EXTRA_MAX_SLOTS, -1) ?: -1)
+
         setContent {
             val themeRepo = remember { AppThemeRepository.getInstance(applicationContext) }
             val currentTheme by themeRepo.currentTheme.collectAsState()
@@ -65,11 +71,11 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
             val rooms by roomRepo.rooms.collectAsState()
             val activeRoom by roomRepo.activeRoom.collectAsState()
 
-            val initialSelected = remember(appWidgetId, rooms) {
+            val initialSelected = remember(appWidgetId, rooms, maxSlots) {
                 if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-                    WidgetPreferences.getChosenProfileIds(applicationContext, appWidgetId)
+                    WidgetPreferences.getChosenProfileIds(applicationContext, appWidgetId, maxSlots)
                 } else {
-                    WidgetPreferences.getDefaultProfileIds(applicationContext)
+                    WidgetPreferences.getDefaultProfileIds(applicationContext, maxSlots)
                 }
             }
 
@@ -82,6 +88,7 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                 ) {
                     WidgetConfigureScreen(
                         currentTheme = currentTheme,
+                        maxSlots = maxSlots,
                         rooms = rooms,
                         activeRoomId = activeRoom?.id,
                         selectedIds = selectedIds,
@@ -89,10 +96,10 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                             selectedIds = if (selectedIds.contains(roomId)) {
                                 selectedIds.filter { it != roomId }
                             } else {
-                                if (selectedIds.size >= 3) {
+                                if (selectedIds.size >= maxSlots) {
                                     Toast.makeText(
                                         this,
-                                        "Maximum 3 contexts allowed in widget",
+                                        "Maximum $maxSlots contexts allowed in widget",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     selectedIds
@@ -124,14 +131,23 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                                 WidgetPreferences.saveChosenProfileIds(
                                     applicationContext,
                                     appWidgetId,
-                                    selectedIds
+                                    selectedIds,
+                                    maxSlots
                                 )
                                 val appWidgetManager = AppWidgetManager.getInstance(applicationContext)
-                                ContextPulseWidgetProvider.updateWidget(
-                                    applicationContext,
-                                    appWidgetManager,
-                                    appWidgetId
-                                )
+                                if (maxSlots > 3) {
+                                    QuickSwitch6WidgetProvider.updateWidget(
+                                        applicationContext,
+                                        appWidgetManager,
+                                        appWidgetId
+                                    )
+                                } else {
+                                    ContextPulseWidgetProvider.updateWidget(
+                                        applicationContext,
+                                        appWidgetManager,
+                                        appWidgetId
+                                    )
+                                }
 
                                 val resultValue = Intent().apply {
                                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
@@ -140,7 +156,8 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
                             } else {
                                 WidgetPreferences.saveDefaultProfileIds(
                                     applicationContext,
-                                    selectedIds
+                                    selectedIds,
+                                    maxSlots
                                 )
                                 ContextPulseWidgetProvider.updateAllWidgets(applicationContext)
                                 setResult(Activity.RESULT_OK)
@@ -155,11 +172,23 @@ class ContextPulseWidgetConfigureActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun resolveMaxSlots(explicitMax: Int): Int {
+        if (explicitMax == 3 || explicitMax == 6) return explicitMax
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            val info = AppWidgetManager.getInstance(this).getAppWidgetInfo(appWidgetId)
+            if (info?.provider?.className == QuickSwitch6WidgetProvider::class.java.name) {
+                return 6
+            }
+        }
+        return 3
+    }
 }
 
 @Composable
 fun WidgetConfigureScreen(
     currentTheme: com.contextpulse.phase0.ui.theme.AppThemeKey,
+    maxSlots: Int = 3,
     rooms: List<RoomItem>,
     activeRoomId: String?,
     selectedIds: List<String>,
@@ -174,8 +203,7 @@ fun WidgetConfigureScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         // Header
@@ -202,13 +230,13 @@ fun WidgetConfigureScreen(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Widget Setup",
+                        text = if (maxSlots > 3) "Quick Switch Context (6)" else "Quick Switch Context (3)",
                         color = theme.textPrimary,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                     Text(
-                        text = "Choose and arrange up to 3 contexts (${selectedIds.size}/3)",
+                        text = "Choose and arrange up to $maxSlots contexts (${selectedIds.size}/$maxSlots)",
                         color = theme.tertiary,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
@@ -251,48 +279,57 @@ fun WidgetConfigureScreen(
                     modifier = Modifier.padding(end = 8.dp)
                 )
 
-                Row(
+                Column(
                     modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    for (i in 0 until 3) {
-                        val profileId = selectedIds.getOrNull(i)
-                        val room = rooms.find { it.id == profileId }
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(52.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    when {
-                                        room == null -> theme.surfaceVariant.copy(alpha = 0.5f)
-                                        room.id == activeRoomId -> theme.primary
-                                        else -> theme.surfaceVariant
-                                    }
-                                )
-                                .border(
-                                    1.dp,
-                                    if (room?.id == activeRoomId) theme.primary else theme.border,
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .padding(4.dp),
-                            contentAlignment = Alignment.Center
+                    val rowsCount = if (maxSlots > 3) 2 else 1
+                    for (row in 0 until rowsCount) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = room?.name ?: "Empty Slot",
-                                    color = if (room?.id == activeRoomId) theme.onPrimary else theme.textPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.5.sp,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = if (room?.id == activeRoomId) "ACTIVE" else if (room != null) "Slot ${i + 1}" else "Not in use",
-                                    color = if (room?.id == activeRoomId) theme.onPrimary.copy(alpha = 0.85f) else theme.tertiary,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                            for (col in 0 until 3) {
+                                val slotIdx = row * 3 + col
+                                val profileId = selectedIds.getOrNull(slotIdx)
+                                val room = rooms.find { it.id == profileId }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(50.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            when {
+                                                room == null -> theme.surfaceVariant.copy(alpha = 0.5f)
+                                                room.id == activeRoomId -> theme.primary
+                                                else -> theme.surfaceVariant
+                                            }
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (room?.id == activeRoomId) theme.primary else theme.border,
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = room?.name ?: "Empty Slot",
+                                            color = if (room?.id == activeRoomId) theme.onPrimary else theme.textPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            text = if (room?.id == activeRoomId) "ACTIVE" else if (room != null) "Slot ${slotIdx + 1}" else "Not in use",
+                                            color = if (room?.id == activeRoomId) theme.onPrimary.copy(alpha = 0.85f) else theme.tertiary,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

@@ -24,6 +24,76 @@ object TransitionDiffEngine {
 
     private const val TAG = "TransitionDiffEngine"
 
+    fun computeDiffWithoutApplying(
+        outgoingContext: ContextItem?,
+        incomingContext: ContextItem,
+        incomingMode: ContextTimeframeMode
+    ): TransitionDiffResult {
+        val outgoingMode = outgoingContext?.profile?.resolveActiveMode()
+        val deltas = mutableListOf<String>()
+
+        // 1. Screen Brightness
+        if (incomingMode.brightnessEnabled) {
+            val incomingLevel = incomingMode.brightnessLevel
+            if (outgoingMode?.brightnessEnabled == true && outgoingMode.brightnessLevel == incomingLevel) {
+                deltas.add("Brightness: Kept at $incomingLevel% (unchanged)")
+            } else {
+                val outLabel = if (outgoingMode?.brightnessEnabled == true) "${outgoingMode.brightnessLevel}%" else "Baseline"
+                deltas.add("Brightness: $outLabel ➔ $incomingLevel%")
+            }
+        } else {
+            if (outgoingMode?.brightnessEnabled == true) {
+                deltas.add("Brightness: Restored to baseline")
+            }
+        }
+
+        // 2. Do Not Disturb (DND)
+        if (incomingMode.dndEnabled) {
+            val incomingDnd = incomingMode.dndMode
+            if (outgoingMode?.dndEnabled == true && outgoingMode.dndMode == incomingDnd) {
+                deltas.add("DND: Kept as '$incomingDnd' (unchanged)")
+            } else {
+                val outLabel = if (outgoingMode?.dndEnabled == true) outgoingMode.dndMode else "Off"
+                deltas.add("DND: $outLabel ➔ $incomingDnd")
+            }
+        } else {
+            if (outgoingMode?.dndEnabled == true) {
+                deltas.add("DND: Deactivated (restored to baseline)")
+            }
+        }
+
+        // 3. Eye Comfort
+        if (incomingMode.eyeComfortEnabled) {
+            val incomingIntensity = incomingMode.eyeComfortLevel
+            if (outgoingMode?.eyeComfortEnabled == true && outgoingMode.eyeComfortLevel == incomingIntensity) {
+                deltas.add("Eye Comfort: Kept at $incomingIntensity% (unchanged)")
+            } else {
+                deltas.add("Eye Comfort: Activated ($incomingIntensity%)")
+            }
+        } else {
+            if (outgoingMode?.eyeComfortEnabled == true) {
+                deltas.add("Eye Comfort: Deactivated")
+            }
+        }
+
+        // 4. App Guard
+        val blockedList = if (incomingMode.appRestrictionsEnabled) incomingMode.restrictedApps.toSet() else emptySet()
+        val budgetList = if (incomingMode.appRestrictionsEnabled) incomingMode.appBudgets else emptyList()
+        if (blockedList.isNotEmpty() || budgetList.isNotEmpty()) {
+            val guardDetails = mutableListOf<String>()
+            if (blockedList.isNotEmpty()) guardDetails.add("${blockedList.size} blocked")
+            if (budgetList.isNotEmpty()) guardDetails.add("${budgetList.size} budgeted")
+            deltas.add("App Guard: ${guardDetails.joinToString(", ")}")
+        } else {
+            if (outgoingMode?.appRestrictionsEnabled == true || outgoingMode?.appBudgets?.isNotEmpty() == true) {
+                deltas.add("App Guard: All restrictions cleared")
+            }
+        }
+
+        val diffSummary = if (deltas.isNotEmpty()) deltas.joinToString(" • ") else "All settings synchronized"
+        return TransitionDiffResult(summary = diffSummary, deltaItems = deltas)
+    }
+
     fun executeIntelligentTransition(
         context: Context,
         outgoingContext: ContextItem?,
@@ -87,21 +157,29 @@ object TransitionDiffEngine {
         }
 
         // 4. Focus App Restrictions & Per-App Usage Budgets
-        val blockedList = incomingMode.restrictedApps.toSet()
-        val budgetList = incomingMode.appBudgets
-
-        AppRestrictionMonitor.setRestrictedPackages(blockedList, incomingContext.name)
-        AppUsageBudgetManager.setActiveContextBudgets(context, incomingContext.id, incomingContext.name, budgetList)
+        val blockedList = if (incomingMode.appRestrictionsEnabled) incomingMode.restrictedApps.toSet() else emptySet()
+        val budgetList = if (incomingMode.appRestrictionsEnabled) incomingMode.appBudgets else emptyList()
 
         if (blockedList.isNotEmpty() || budgetList.isNotEmpty()) {
+            AppRestrictionMonitor.setRestrictedPackages(blockedList, incomingContext.name, incomingMode.id)
+            AppUsageBudgetManager.setActiveContextBudgets(
+                context = context,
+                contextId = incomingContext.id,
+                contextName = incomingContext.name,
+                budgets = budgetList,
+                modeId = incomingMode.id
+            )
             AppRestrictionMonitor.startContinuousMonitoring(context, 200L)
             val guardDetails = mutableListOf<String>()
             if (blockedList.isNotEmpty()) guardDetails.add("${blockedList.size} blocked")
             if (budgetList.isNotEmpty()) guardDetails.add("${budgetList.size} budgeted")
             deltas.add("App Guard: ${guardDetails.joinToString(", ")}")
         } else {
+            AppRestrictionMonitor.setRestrictedPackages(emptySet(), null, null)
+            AppUsageBudgetManager.setActiveContextBudgets(context, null, null, emptyList())
+            AppRestrictionMonitor.stopContinuousMonitoring()
+            FloatingTimerOverlayManager.clearBudgetOverlay(context)
             if (outgoingMode?.appRestrictionsEnabled == true || outgoingMode?.appBudgets?.isNotEmpty() == true) {
-                AppRestrictionMonitor.stopContinuousMonitoring()
                 deltas.add("App Guard: All restrictions cleared")
             }
         }

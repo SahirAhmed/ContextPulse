@@ -2,6 +2,7 @@ package com.contextpulse.phase0.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.contextpulse.phase0.ble.BeaconRegistry
 import com.contextpulse.phase0.model.RegisteredBeacon
 import com.contextpulse.phase0.model.TriggerType
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,11 +14,15 @@ import org.json.JSONObject
 /**
  * Persists registered Triggers (BLE Beacons, NFC Tags, QR Codes) in SharedPreferences.
  */
-class BeaconRepository(context: Context) {
+class BeaconRepository(
+    context: Context,
+    private val customPrefsName: String = PREFS_NAME,
+    private val syncToLiveRegistry: Boolean = true
+) {
 
     private val appContext = context.applicationContext
     private val prefs: SharedPreferences =
-        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(customPrefsName, Context.MODE_PRIVATE)
 
     private val _beacons = MutableStateFlow<List<RegisteredBeacon>>(emptyList())
     val beacons: StateFlow<List<RegisteredBeacon>> = _beacons.asStateFlow()
@@ -145,9 +150,11 @@ class BeaconRepository(context: Context) {
     }
 
     fun findByNfcTagId(tagId: String): RegisteredBeacon? {
+        val clean = tagId.trim()
+        if (clean.isBlank()) return null
         return _beacons.value.find {
             it.type == TriggerType.NFC_TAG &&
-                (it.nfcTagId.equals(tagId, ignoreCase = true) || it.id.equals(tagId, ignoreCase = true))
+                (it.nfcTagId.equals(clean, ignoreCase = true) || it.id.equals(clean, ignoreCase = true))
         }
     }
 
@@ -163,26 +170,114 @@ class BeaconRepository(context: Context) {
         }
     }
 
+    /**
+     * Returns the locked TriggerType already attached to a Context, or null if no triggers are attached yet.
+     * Contexts may only have triggers of a single homogeneous TriggerType (BLE Beacon, QR Code, or NFC Tag).
+     */
+    fun getLockedTriggerTypeForContext(
+        contextId: String,
+        contextName: String = "",
+        excludeTriggerId: String? = null
+    ): TriggerType? {
+        if (contextId.isBlank() && contextName.isBlank()) return null
+        return _beacons.value.firstOrNull { b ->
+            b.id != excludeTriggerId &&
+                b.type != TriggerType.UNCONFIGURED &&
+                ((contextId.isNotBlank() && b.assignedRoomId == contextId) ||
+                    (contextName.isNotBlank() && b.assignedRoomName.equals(contextName, ignoreCase = true)))
+        }?.type
+    }
+
+    fun canAttachTriggerToContext(
+        triggerId: String,
+        contextId: String,
+        contextName: String = ""
+    ): Boolean {
+        val trigger = _beacons.value.find { it.id == triggerId } ?: return false
+        if (trigger.type == TriggerType.UNCONFIGURED) return true
+        val lockedType = getLockedTriggerTypeForContext(
+            contextId = contextId,
+            contextName = contextName,
+            excludeTriggerId = triggerId
+        )
+        return lockedType == null || lockedType == trigger.type
+    }
+
     fun saveOrUpdateBeacon(beacon: RegisteredBeacon) {
-        val current = _beacons.value.toMutableList()
-        val existingIdx = current.indexOfFirst { it.id == beacon.id }
-        if (existingIdx >= 0) {
-            current[existingIdx] = beacon
+        val sanitizedBeacon = if (
+            beacon.type != TriggerType.UNCONFIGURED &&
+            (beacon.assignedRoomId.isNotBlank() || beacon.assignedRoomName.isNotBlank())
+        ) {
+            val lockedType = getLockedTriggerTypeForContext(
+                contextId = beacon.assignedRoomId,
+                contextName = beacon.assignedRoomName,
+                excludeTriggerId = beacon.id
+            )
+            if (lockedType != null && lockedType != beacon.type) {
+                beacon.copy(assignedRoomId = "", assignedRoomName = "")
+            } else {
+                beacon
+            }
         } else {
-            current.add(beacon)
+            beacon
+        }
+
+        val current = _beacons.value.toMutableList()
+        val existingIdx = current.indexOfFirst { it.id == sanitizedBeacon.id }
+        if (existingIdx >= 0) {
+            current[existingIdx] = sanitizedBeacon
+        } else {
+            current.add(sanitizedBeacon)
         }
         saveBeaconsInternal(current)
-        checkAndNotifyTriggerStatus()
+        if (syncToLiveRegistry) {
+            syncBeaconRegistryForBeacon(sanitizedBeacon)
+            checkAndNotifyTriggerStatus()
+        }
     }
 
     fun deleteBeacon(beaconId: String) {
+        val target = _beacons.value.find { it.id == beaconId }
         val updated = _beacons.value.filterNot { it.id == beaconId }
         saveBeaconsInternal(updated)
+        if (syncToLiveRegistry && target != null && target.type == TriggerType.BLE_BEACON && target.macAddress.isNotBlank()) {
+            BeaconRegistry.unregisterBeacon(appContext, target.macAddress)
+        }
     }
 
     fun deleteSensor(sensorId: String) = deleteBeacon(sensorId)
 
     fun saveTrigger(trigger: RegisteredBeacon) = saveOrUpdateBeacon(trigger)
+
+    fun reconcileWithRooms(validRooms: List<com.contextpulse.phase0.model.RoomItem>) {
+        val roomMap = validRooms.associateBy { it.id }
+        val updated = _beacons.value.map { b ->
+            if (b.assignedRoomId.isNotBlank()) {
+                val matchingRoom = roomMap[b.assignedRoomId]
+                if (matchingRoom != null) {
+                    // Context renamed: update display label cache while preserving stable ID
+                    b.copy(assignedRoomName = matchingRoom.name)
+                } else {
+                    // Context was deleted: unassign beacon
+                    b.copy(assignedRoomId = "", assignedRoomName = "")
+                }
+            } else if (b.assignedRoomName.isNotBlank()) {
+                // Legacy data: resolve stable roomId from name if possible
+                val matchingRoom = validRooms.find { it.name.equals(b.assignedRoomName, ignoreCase = true) }
+                if (matchingRoom != null) {
+                    b.copy(assignedRoomId = matchingRoom.id, assignedRoomName = matchingRoom.name)
+                } else {
+                    b.copy(assignedRoomId = "", assignedRoomName = "")
+                }
+            } else {
+                b
+            }
+        }
+        if (updated != _beacons.value) {
+            saveBeaconsInternal(updated)
+            syncAllToBeaconRegistry()
+        }
+    }
 
     fun reconcileWithRoomNames(validRoomNames: Set<String>) {
         val updated = _beacons.value.map { b ->
@@ -194,6 +289,7 @@ class BeaconRepository(context: Context) {
         }
         if (updated != _beacons.value) {
             saveBeaconsInternal(updated)
+            syncAllToBeaconRegistry()
         }
     }
 
@@ -206,9 +302,29 @@ class BeaconRepository(context: Context) {
             }
         }
         saveBeaconsInternal(updated)
+        syncAllToBeaconRegistry()
     }
 
-    fun attachBeaconToRoom(triggerId: String, roomName: String) {
+    fun attachBeaconToContext(triggerId: String, contextId: String, contextName: String): Boolean {
+        if (!canAttachTriggerToContext(triggerId, contextId, contextName)) {
+            return false
+        }
+        val updated = _beacons.value.map { b ->
+            if (b.id == triggerId) {
+                b.copy(assignedRoomId = contextId, assignedRoomName = contextName)
+            } else {
+                b
+            }
+        }
+        saveBeaconsInternal(updated)
+        syncBeaconRegistryForTriggerId(triggerId, contextId, contextName)
+        return true
+    }
+
+    fun attachBeaconToRoom(triggerId: String, roomName: String): Boolean {
+        if (!canAttachTriggerToContext(triggerId, contextId = "", contextName = roomName)) {
+            return false
+        }
         val updated = _beacons.value.map { b ->
             if (b.id == triggerId) {
                 b.copy(assignedRoomName = roomName)
@@ -217,9 +333,16 @@ class BeaconRepository(context: Context) {
             }
         }
         saveBeaconsInternal(updated)
+        syncAllToBeaconRegistry()
+        return true
+    }
+
+    fun detachBeaconFromContext(triggerId: String) {
+        detachBeaconFromRoom(triggerId)
     }
 
     fun detachBeaconFromRoom(triggerId: String) {
+        val target = _beacons.value.find { it.id == triggerId }
         val updated = _beacons.value.map { b ->
             if (b.id == triggerId) {
                 b.copy(assignedRoomId = "", assignedRoomName = "")
@@ -228,6 +351,11 @@ class BeaconRepository(context: Context) {
             }
         }
         saveBeaconsInternal(updated)
+        if (syncToLiveRegistry) {
+            if (target != null && target.type == TriggerType.BLE_BEACON && target.macAddress.isNotBlank()) {
+                BeaconRegistry.unregisterBeacon(appContext, target.macAddress)
+            }
+        }
     }
 
     fun updateAssignedRoomName(oldName: String, newName: String) {
@@ -239,16 +367,100 @@ class BeaconRepository(context: Context) {
             }
         }
         saveBeaconsInternal(updated)
+        syncAllToBeaconRegistry()
+    }
+
+    fun findDuplicateIBeacon(uuid: String, major: Int, minor: Int, excludeId: String? = null): RegisteredBeacon? {
+        return _beacons.value.find { it.id != excludeId && it.matchesIBeaconIdentity(uuid, major, minor) }
+    }
+
+    /**
+     * Continuously updates live RSSI, passive Eddystone-TLM battery percentage, and reachability.
+     * Updates in-memory StateFlow immediately for smooth visual telemetry in the UI.
+     */
+    fun updateBeaconTelemetry(
+        macAddress: String,
+        rssi: Int,
+        batteryPercent: Int? = null,
+        isReachable: Boolean = true
+    ) {
+        if (macAddress.isBlank()) return
+        val current = _beacons.value
+        var updatedAny = false
+        var batteryChanged = false
+        val updated = current.map { b ->
+            if (b.type == TriggerType.BLE_BEACON && b.macAddress.equals(macAddress, ignoreCase = true)) {
+                updatedAny = true
+                val nextBattery = batteryPercent ?: b.batteryPercent
+                if (batteryPercent != null && batteryPercent != b.batteryPercent) {
+                    batteryChanged = true
+                }
+                b.copy(
+                    rssi = rssi,
+                    batteryPercent = nextBattery,
+                    lastSeenMillis = System.currentTimeMillis(),
+                    isReachable = isReachable,
+                    isOffline = false
+                )
+            } else {
+                b
+            }
+        }
+        if (updatedAny) {
+            if (batteryChanged) {
+                saveBeaconsInternal(updated)
+            } else {
+                _beacons.value = updated
+            }
+        }
+    }
+
+    private fun syncBeaconRegistryForTriggerId(triggerId: String, contextId: String, contextName: String) {
+        val beacon = _beacons.value.find { it.id == triggerId } ?: return
+        syncBeaconRegistryForBeacon(beacon.copy(assignedRoomId = contextId, assignedRoomName = contextName))
+    }
+
+    private fun syncBeaconRegistryForBeacon(beacon: RegisteredBeacon) {
+        if (!syncToLiveRegistry) return
+        if (beacon.type != TriggerType.BLE_BEACON) return
+        if (beacon.assignedRoomId.isNotBlank()) {
+            val (major, minor) = beacon.parseMajorMinor()
+            BeaconRegistry.registerBeacon(
+                context = appContext,
+                roomId = beacon.assignedRoomId,
+                roomName = beacon.assignedRoomName.ifBlank { "Room" },
+                macAddress = beacon.macAddress,
+                uuid = beacon.namespaceOrUuid.ifBlank { null },
+                major = major,
+                minor = minor,
+                beaconType = com.contextpulse.phase0.model.BeaconType.IBEACON
+            )
+        } else {
+            // Unassigned: guarantee it is NOT registered as an active room beacon in BeaconRegistry
+            if (beacon.macAddress.isNotBlank()) {
+                BeaconRegistry.unregisterBeacon(appContext, beacon.macAddress)
+            }
+        }
+    }
+
+    private fun syncAllToBeaconRegistry() {
+        for (beacon in _beacons.value) {
+            if (beacon.type == TriggerType.BLE_BEACON) {
+                syncBeaconRegistryForBeacon(beacon)
+            }
+        }
     }
 
     fun addUnconfiguredTrigger(name: String, type: TriggerType = TriggerType.BLE_BEACON): RegisteredBeacon {
         val cleanName = name.trim()
+        val generatedId = "trigger_${System.currentTimeMillis() % 100000}"
+        val appLinkUrl = com.contextpulse.phase0.util.NfcTagHelper.buildAppLinkUri(generatedId)
         val newTrigger = RegisteredBeacon(
-            id = "trigger_${System.currentTimeMillis() % 100000}",
+            id = generatedId,
             name = cleanName,
             type = type,
             macAddress = if (type == TriggerType.BLE_BEACON) "00:11:22:33:44:55" else "",
-            qrPayload = if (type == TriggerType.QR_CODE) "https://sahirahmed.github.io/ContextPulse/?trigger=${cleanName.lowercase().replace(" ", "_")}" else "",
+            qrPayload = if (type == TriggerType.QR_CODE || type == TriggerType.NFC_TAG) appLinkUrl else "",
             isReachable = true
         )
         saveOrUpdateBeacon(newTrigger)
@@ -278,37 +490,13 @@ class BeaconRepository(context: Context) {
             val notifPrefs = NotificationPreferencesRepository.getInstance(appContext)
             val notifManager = com.contextpulse.phase0.system.ContextPulseNotificationManager.getInstance(appContext)
             if (!notifPrefs.lowBatteryNotificationsEnabled.value || !notifManager.isBeaconBatteryEnabled()) return
-            if (!notifPrefs.hasNotificationPermission()) return
+            if (!notifManager.isNotificationPermissionGranted()) return
 
             val lowBatteryTriggers = _beacons.value.filter { it.isLowBattery() }
-            if (lowBatteryTriggers.isEmpty()) return
-
-            val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-            val channelId = "contextpulse_trigger_alerts"
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                val channel = android.app.NotificationChannel(
-                    channelId,
-                    "Trigger & Beacon Battery Alerts",
-                    android.app.NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Alerts when a BLE Beacon is low on battery or unreachable"
-                }
-                nm.createNotificationChannel(channel)
+            lowBatteryTriggers.forEach { trigger ->
+                val pct = trigger.batteryPercent ?: return@forEach
+                notifManager.notifyLowBeaconBattery(trigger.name, pct)
             }
-
-            val names = lowBatteryTriggers.joinToString(", ") { "${it.name} (${it.batteryPercent}%)" }
-            val body = "Low battery detected on beacon(s): $names. Please replace or recharge soon."
-
-            val notif = androidx.core.app.NotificationCompat.Builder(appContext, channelId)
-                .setSmallIcon(android.R.drawable.stat_sys_warning)
-                .setContentTitle("ContextPulse: Beacon Low Battery")
-                .setContentText(body)
-                .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(body))
-                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .build()
-
-            nm.notify(8801, notif)
         } catch (_: Exception) {
             // Ignore in test environments
         }

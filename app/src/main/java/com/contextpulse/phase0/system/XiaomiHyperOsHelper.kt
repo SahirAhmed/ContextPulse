@@ -12,13 +12,37 @@ object XiaomiHyperOsHelper {
 
     private const val TAG = "XiaomiHyperOsHelper"
 
+    private var mockIsXiaomiOverride: Boolean? = null
+
+    /**
+     * For isolated automated unit tests to verify behavior on non-Xiaomi device profiles
+     * without modifying physical device hardware.
+     */
+    fun setMockDeviceProfile(isXiaomi: Boolean?) {
+        mockIsXiaomiOverride = isXiaomi
+    }
+
     fun isXiaomiOrHyperOs(): Boolean {
+        mockIsXiaomiOverride?.let { return it }
+
         val manufacturer = Build.MANUFACTURER.lowercase()
         val brand = Build.BRAND.lowercase()
-        return manufacturer.contains("xiaomi") ||
-            brand.contains("poco") ||
-            brand.contains("redmi") ||
-            getSystemProperty("ro.miui.ui.version.name").isNotEmpty()
+        val model = Build.MODEL.lowercase()
+
+        val isXiaomiMfrOrBrand = manufacturer.contains("xiaomi") ||
+                manufacturer.contains("redmi") ||
+                manufacturer.contains("poco") ||
+                brand.contains("xiaomi") ||
+                brand.contains("redmi") ||
+                brand.contains("poco") ||
+                model.contains("poco") ||
+                model.contains("redmi")
+
+        val hasMiuiOrHyperOsProp = getSystemProperty("ro.miui.ui.version.name").isNotEmpty() ||
+                getSystemProperty("ro.miui.ui.version.code").isNotEmpty() ||
+                getSystemProperty("ro.miui.version.code_name").isNotEmpty()
+
+        return isXiaomiMfrOrBrand || hasMiuiOrHyperOsProp
     }
 
     fun isXiaomiOrPocoDevice(): Boolean = isXiaomiOrHyperOs()
@@ -30,7 +54,7 @@ object XiaomiHyperOsHelper {
     fun getHyperOsChecklist(): List<String> {
         return listOf(
             "1. Enable Autostart: Open Xiaomi Security → Manage Apps → ContextPulse → enable 'Autostart' so BLE Beacon & schedule services survive reboots.",
-            "2. Battery Saver: Set ContextPulse Battery Saver mode to 'No restrictions' so HyperOS 2.0 does not suspend background proximity scanning.",
+            "2. Battery Saver: Set ContextPulse Battery Saver mode to 'No restrictions' so HyperOS / MIUI does not suspend background proximity scanning.",
             "3. Lock in Recents: Open Recent Apps, long-press ContextPulse, and tap the Lock icon.",
             "4. Background Pop-up Permission: Enable 'Display pop-up windows while running in the background' so Blocked Apps focus shields appear immediately."
         )
@@ -42,7 +66,13 @@ object XiaomiHyperOsHelper {
 
     fun getHyperOsVersion(): String {
         val miuiVersion = getSystemProperty("ro.miui.ui.version.name")
-        return if (miuiVersion.isNotEmpty()) miuiVersion else "HyperOS / Stock Android"
+        val miuiCode = getSystemProperty("ro.miui.ui.version.code")
+        return when {
+            miuiVersion.isNotEmpty() -> "HyperOS / MIUI $miuiVersion"
+            miuiCode.isNotEmpty() -> "HyperOS (Build $miuiCode)"
+            isXiaomiOrHyperOs() -> "Xiaomi HyperOS"
+            else -> "Stock Android"
+        }
     }
 
     fun openAutostartSettings(context: Context): Boolean {

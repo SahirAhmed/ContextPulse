@@ -29,11 +29,13 @@ fun isCurrentTimeWithinSchedule(start: String, end: String, activeDays: List<Int
     val startMinutes = parseScheduleTimeToMinutes(start)
     val endMinutes = parseScheduleTimeToMinutes(end)
 
-    return if (startMinutes <= endMinutes) {
-        currentMinutes in startMinutes..endMinutes
-    } else {
+    return if (startMinutes < endMinutes) {
+        currentMinutes in startMinutes until endMinutes
+    } else if (startMinutes > endMinutes) {
         // Overnight window e.g. 22:00 to 07:00
-        currentMinutes >= startMinutes || currentMinutes <= endMinutes
+        currentMinutes >= startMinutes || currentMinutes < endMinutes
+    } else {
+        true
     }
 }
 
@@ -484,10 +486,12 @@ data class RoomProfile(
                 if (!mode.daysOfWeek.contains(dayOfWeek)) return@find false
                 val startM = mode.startHour * 60 + mode.startMinute
                 val endM = mode.endHour * 60 + mode.endMinute
-                if (startM <= endM) {
-                    minuteOfDay in startM..endM
+                if (startM < endM) {
+                    minuteOfDay in startM until endM
+                } else if (startM > endM) {
+                    minuteOfDay >= startM || minuteOfDay < endM
                 } else {
-                    minuteOfDay >= startM || minuteOfDay <= endM
+                    true
                 }
             }
             if (matchingCustom != null) return matchingCustom

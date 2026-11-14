@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/widget_preview_bg_surface"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <ImageView
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_contextpulse_logo"
+            android:contentDescription="ContextPulse Logo" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Slot 1 (Active) -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/widget_preview_slot_active"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="4dp">
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                    <ImageView android:layout_width="7dp" android:layout_height="7dp" android:layout_marginEnd="4dp" android:src="@drawable/widget_preview_dot_dark" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Office" android:textColor="#FF101010" android:textSize="12sp" android:textStyle="bold" android:maxLines="1" />
+                </LinearLayout>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ACTIVE" android:textColor="#FF101010" android:textSize="9.5sp" android:maxLines="1" />
+            </LinearLayout>
+
+            <!-- Slot 2 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/widget_preview_slot_inactive"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="4dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Bedroom" android:textColor="#FFFFFFFF" android:textSize="12sp" android:textStyle="bold" android:maxLines="1" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textColor="#FF38BDF8" android:textSize="9.5sp" android:maxLines="1" />
+            </LinearLayout>
+
+            <!-- Slot 3 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@drawable/widget_preview_slot_inactive"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="4dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Living" android:textColor="#FFFFFFFF" android:textSize="12sp" android:textStyle="bold" android:maxLines="1" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Switch" android:textColor="#FF38BDF8" android:textSize="9.5sp" android:maxLines="1" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_widget_settings"
+            android:tint="#FF38BDF8"
+            android:contentDescription="Configure" />
+    </LinearLayout>
+</FrameLayout>
